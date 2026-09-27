@@ -1,0 +1,45 @@
+name: Build TokoKu v3.17 APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Extract TokoKu v3.17
+        run: |
+          mkdir extracted
+          unzip -q TokoKu_v3.17_Rincian_Pengeluaran_Harian.zip -d extracted
+          cp -R extracted/TokoKu_v3_Android_Project/. .
+
+      - name: Build APK
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.17-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
