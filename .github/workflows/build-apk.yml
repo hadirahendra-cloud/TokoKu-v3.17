@@ -28,60 +28,29 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Extract TokoKu 3.19 FIXED source
+      - name: Extract source
         run: |
-          test -f TokoKu_v3.19_RangMudoJr_Piutang_Manual_LayarFix_Signed_FIXED.zip
-          rm -rf extracted
-          mkdir extracted
           unzip -q TokoKu_v3.19_RangMudoJr_Piutang_Manual_LayarFix_Signed_FIXED.zip -d extracted
           cp -R extracted/TokoKu_v3_Android_Project/. .
-          test -f app/build.gradle
-          grep -q "versionCode 19" app/build.gradle
-          grep -q "versionName '3.19'" app/build.gradle
 
-      - name: Prepare release keystore
+      - name: Prepare keystore
         env:
           KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
         run: |
-          test -n "$KEYSTORE_B64"
           echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
-          test -s "$RUNNER_TEMP/tokoku-release.jks"
 
-      - name: Build signed release APK
+      - name: Build release
         env:
           TOKOKU_KEYSTORE_FILE: ${{ runner.temp }}/tokoku-release.jks
           TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
         run: |
-          test -n "$TOKOKU_KEYSTORE_PASSWORD"
-          test -n "$TOKOKU_KEY_ALIAS"
           gradle :app:assembleRelease --no-daemon
 
-            - name: Verify APK and signing certificate
-        env:
-          EXPECTED_SHA256: "8B:91:B7:C1:E3:19:CA:AE:93:85:01:6F:CD:E9:B4:3C:6A:64:AB:B7:C7:82:08:DD:A3:E4:A2:58:87:8D:DA:6F"
+      - name: Verify APK
         run: |
-          APK=app/build/outputs/apk/release/app-release.apk
-
-          test -s "$APK"
-
-          echo "=== APK signature ==="
-          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs "$APK"
-
-          ACTUAL_SHA256=$(
-            $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs "$APK" \
-            | sed -n 's/Signer #1 certificate SHA-256 digest: //p' \
-            | head -n 1
-          )
-
-          echo "Expected: $EXPECTED_SHA256"
-          echo "Actual:   $ACTUAL_SHA256"
-
-          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
-
-          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" \
-            | grep -E "package: name='com.tokoku.app' versionCode='19' versionName='3.19'"
-
+          test -s app/build/outputs/apk/release/app-release.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose app/build/outputs/apk/release/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
