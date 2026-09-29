@@ -1,4 +1,4 @@
-name: Build TokoKu v3.17 APK
+name: Build TokoKu 3.19 APK
 
 on:
   workflow_dispatch:
@@ -21,25 +21,52 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.7"
+          gradle-version: '8.7'
 
-      - name: Extract TokoKu v3.17
+      - name: Extract TokoKu 3.19 FIXED source
         run: |
+          test -f TokoKu_v3.19_RangMudoJr_Piutang_Manual_LayarFix_Signed_FIXED.zip
+          rm -rf extracted
           mkdir extracted
-          unzip -q TokoKu_v3.18_Backup_Pilihan_VivoY36_Signed.zip -d extracted
+          unzip -q TokoKu_v3.19_RangMudoJr_Piutang_Manual_LayarFix_Signed_FIXED.zip -d extracted
           cp -R extracted/TokoKu_v3_Android_Project/. .
+          test -f app/build.gradle
+          grep -q "versionCode 19" app/build.gradle
+          grep -q "versionName '3.19'" app/build.gradle
 
-      - name: Build APK
-        run: gradle :app:assembleDebug --no-daemon
+      - name: Prepare release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_B64"
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
+          test -s "$RUNNER_TEMP/tokoku-release.jks"
+
+      - name: Build signed release APK
+        env:
+          TOKOKU_KEYSTORE_FILE: ${{ runner.temp }}/tokoku-release.jks
+          TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+        run: |
+          test -n "$TOKOKU_KEYSTORE_PASSWORD"
+          test -n "$TOKOKU_KEY_ALIAS"
+          gradle :app:assembleRelease --no-daemon
+
+      - name: Verify APK
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose "$APK"
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | grep -E "package: name='com.tokoku.app' versionCode='19' versionName='3.19'"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.17-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: TokoKu-v3.19-release-FIXED
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
