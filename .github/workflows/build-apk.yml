@@ -20,18 +20,15 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
 
       - name: Prepare keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "ERROR: TOKOKU_KEYSTORE_BASE64 kosong atau belum tersedia."
-            exit 1
-          fi
-
           mkdir -p TokoKu_v3_Android_Project
 
           printf '%s' "$KEYSTORE_BASE64" \
@@ -39,30 +36,35 @@ jobs:
             | base64 --decode \
             > TokoKu_v3_Android_Project/tokoku-release.jks
 
-          if [ ! -s TokoKu_v3_Android_Project/tokoku-release.jks ]; then
-            echo "ERROR: Keystore gagal dibuat."
-            exit 1
-          fi
+          test -s TokoKu_v3_Android_Project/tokoku-release.jks
 
           echo "Keystore berhasil disiapkan."
 
-      - name: Build APK
+      - name: Build TokoKu v3.21
         working-directory: TokoKu_v3_Android_Project
         env:
           TOKOKU_KEYSTORE_FILE: ${{ github.workspace }}/TokoKu_v3_Android_Project/tokoku-release.jks
           TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
         run: |
+          gradle --version
           gradle assembleRelease --stacktrace
 
-      - name: Check APK
+      - name: Verify APK
         run: |
-          test -f TokoKu_v3_Android_Project/app/build/outputs/apk/release/app-release.apk
-          echo "APK berhasil dibuat:"
-          ls -lh TokoKu_v3_Android_Project/app/build/outputs/apk/release/app-release.apk
+          APK="TokoKu_v3_Android_Project/app/build/outputs/apk/release/app-release.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "APK tidak ditemukan."
+            exit 1
+          fi
+
+          echo "APK TokoKu v3.21 berhasil dibuat."
+          ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TokoKu-v3.21-release
           path: TokoKu_v3_Android_Project/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
