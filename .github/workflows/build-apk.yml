@@ -33,17 +33,21 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Find Android project
+      - name: Find TokoKu project
         run: |
-          PROJECT_DIR=$(find . -name settings.gradle -type f -print -quit | xargs dirname)
+          APP_GRADLE=$(find . -type f -path "*/app/build.gradle" -print -quit)
 
-          if [ -z "$PROJECT_DIR" ] || [ "$PROJECT_DIR" = "." ]; then
-            echo "Project Android tidak ditemukan."
-            find . -maxdepth 4 -type f -name settings.gradle
+          if [ -z "$APP_GRADLE" ]; then
+            echo "ERROR: app/build.gradle tidak ditemukan."
+            find . -maxdepth 5 -type f -name "build.gradle" -print
             exit 1
           fi
 
-          echo "Project ditemukan di: $PROJECT_DIR"
+          PROJECT_DIR=$(dirname "$(dirname "$APP_GRADLE")")
+
+          echo "Project ditemukan:"
+          echo "$PROJECT_DIR"
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Prepare keystore
@@ -70,7 +74,7 @@ jobs:
         run: |
           cd "$PROJECT_DIR"
 
-          echo "Build dari:"
+          echo "Build directory:"
           pwd
 
           gradle --version
@@ -78,11 +82,11 @@ jobs:
 
       - name: Verify APK
         run: |
-          APK=$(find . -path "*/app/build/outputs/apk/release/app-release.apk" -type f -print -quit)
+          APK=$(find . -type f -path "*/app/build/outputs/apk/release/app-release.apk" -print -quit)
 
           if [ -z "$APK" ]; then
-            echo "APK tidak ditemukan."
-            find . -type f -name "*.apk"
+            echo "ERROR: APK tidak ditemukan."
+            find . -type f -name "*.apk" -print
             exit 1
           fi
 
