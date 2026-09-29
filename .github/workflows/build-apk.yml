@@ -33,6 +33,19 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
+      - name: Find Android project
+        run: |
+          PROJECT_DIR=$(find . -name settings.gradle -type f -print -quit | xargs dirname)
+
+          if [ -z "$PROJECT_DIR" ] || [ "$PROJECT_DIR" = "." ]; then
+            echo "Project Android tidak ditemukan."
+            find . -maxdepth 4 -type f -name settings.gradle
+            exit 1
+          fi
+
+          echo "Project ditemukan di: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
       - name: Prepare keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
@@ -51,20 +64,25 @@ jobs:
           echo "Keystore berhasil disiapkan."
 
       - name: Build TokoKu v3.21
-        working-directory: TokoKu_v3_Android_Project
         env:
           TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
         run: |
+          cd "$PROJECT_DIR"
+
+          echo "Build dari:"
+          pwd
+
           gradle --version
           gradle :app:assembleRelease --no-daemon --stacktrace
 
       - name: Verify APK
         run: |
-          APK="TokoKu_v3_Android_Project/app/build/outputs/apk/release/app-release.apk"
+          APK=$(find . -path "*/app/build/outputs/apk/release/app-release.apk" -type f -print -quit)
 
-          if [ ! -f "$APK" ]; then
+          if [ -z "$APK" ]; then
             echo "APK tidak ditemukan."
+            find . -type f -name "*.apk"
             exit 1
           fi
 
@@ -77,5 +95,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TokoKu-v3.21-release
-          path: TokoKu_v3_Android_Project/app/build/outputs/apk/release/app-release.apk
+          path: "**/app/build/outputs/apk/release/app-release.apk"
           if-no-files-found: error
