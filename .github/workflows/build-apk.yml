@@ -14,31 +14,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.7
+      - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+
+      - name: Setup Android SDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Prepare keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
         run: |
-          mkdir -p TokoKu_v3_Android_Project
-
           printf '%s' "$KEYSTORE_BASE64" \
             | tr -d '\r\n ' \
             | base64 --decode \
             > TokoKu_v3_Android_Project/tokoku-release.jks
 
           test -s TokoKu_v3_Android_Project/tokoku-release.jks
-
-          echo "Keystore berhasil disiapkan."
 
       - name: Build TokoKu v3.21
         working-directory: TokoKu_v3_Android_Project
@@ -48,18 +52,17 @@ jobs:
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
         run: |
           gradle --version
-          gradle assembleRelease --stacktrace
+          gradle :app:assembleRelease --no-daemon --stacktrace
 
       - name: Verify APK
         run: |
           APK="TokoKu_v3_Android_Project/app/build/outputs/apk/release/app-release.apk"
 
-          if [ ! -f "$APK" ]; then
-            echo "APK tidak ditemukan."
-            exit 1
-          fi
+          test -f "$APK"
 
-          echo "APK TokoKu v3.21 berhasil dibuat."
+          echo "================================"
+          echo "APK TokoKu v3.21 BERHASIL"
+          echo "================================"
           ls -lh "$APK"
 
       - name: Upload APK
