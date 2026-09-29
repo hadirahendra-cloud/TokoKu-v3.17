@@ -35,7 +35,7 @@ jobs:
 
       - name: Extract TokoKu v3.21
         run: |
-          ZIP="./TokoKu_v3.22_Spektakuler_Ikon_RangMudoJr_FINAL.zip"
+          ZIP="./TokoKu_v3.22.1_Backup_Pilih_Lokasi_RangMudoJr.zip"
 
           if [ ! -f "$ZIP" ]; then
             echo "ERROR: ZIP v3.21 tidak ditemukan."
