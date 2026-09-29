@@ -1,4 +1,4 @@
-name: Build TokoKu v3.21
+name: Build TokoKu v3.22.2
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
 
       - name: Extract TokoKu v3.21
         run: |
-          ZIP="./TokoKu_v3.22.1_Backup_Pilih_Lokasi_RangMudoJr.zip"
+          ZIP="./TokoKu_v3.22.2_WA_Pelanggan_RangMudoJr.zip"
 
           if [ ! -f "$ZIP" ]; then
             echo "ERROR: ZIP v3.21 tidak ditemukan."
