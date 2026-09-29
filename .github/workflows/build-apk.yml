@@ -30,7 +30,7 @@ jobs:
 
       - name: Extract source
         run: |
-          unzip -q TokoKu_v3.19_RangMudoJr_Piutang_Manual_LayarFix_Signed_FIXED.zip -d extracted
+          unzip -q TokoKu_v3.20_RangMudoJr_Piutang_Manual_SafeArea_Signed.zip -d extracted
           cp -R extracted/TokoKu_v3_Android_Project/. .
 
       - name: Prepare keystore
