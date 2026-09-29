@@ -57,12 +57,31 @@ jobs:
           test -n "$TOKOKU_KEY_ALIAS"
           gradle :app:assembleRelease --no-daemon
 
-      - name: Verify APK
+            - name: Verify APK and signing certificate
+        env:
+          EXPECTED_SHA256: "8B:91:B7:C1:E3:19:CA:AE:93:85:01:6F:CD:E9:B4:3C:6A:64:AB:B7:C7:82:08:DD:A3:E4:A2:58:87:8D:DA:6F"
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
+
           test -s "$APK"
-          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose "$APK"
-          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" | grep -E "package: name='com.tokoku.app' versionCode='19' versionName='3.19'"
+
+          echo "=== APK signature ==="
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs "$APK"
+
+          ACTUAL_SHA256=$(
+            $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs "$APK" \
+            | sed -n 's/Signer #1 certificate SHA-256 digest: //p' \
+            | head -n 1
+          )
+
+          echo "Expected: $EXPECTED_SHA256"
+          echo "Actual:   $ACTUAL_SHA256"
+
+          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+
+          $ANDROID_HOME/build-tools/35.0.0/aapt dump badging "$APK" \
+            | grep -E "package: name='com.tokoku.app' versionCode='19' versionName='3.19'"
+
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
