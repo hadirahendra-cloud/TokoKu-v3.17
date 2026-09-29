@@ -31,7 +31,7 @@ jobs:
       - name: Extract TokoKu v3.17
         run: |
           mkdir extracted
-          unzip -q TokoKu_v3.17_RangMudoJr_Piutang_Manual.zip -d extracted
+          unzip -q TokoKu_v3.18_RangMudoJr_Piutang_Manual_Signed.zip -d extracted
           cp -R extracted/TokoKu_v3_Android_Project/. .
 
       - name: Build APK
