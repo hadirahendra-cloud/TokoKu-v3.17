@@ -33,12 +33,12 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Extract TokoKu v3.21
+      - name: Extract TokoKu v3.22.3
         run: |
           ZIP="./TokoKu_v3.22.3_RumahMakan_DiNota_RangMudoJr.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "ERROR: ZIP v3.21 tidak ditemukan."
+            echo "ERROR: ZIP v3.22.3 tidak ditemukan."
             ls -lah
             exit 1
           fi
