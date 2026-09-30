@@ -35,7 +35,7 @@ jobs:
 
       - name: Extract TokoKu v3.22.3
         run: |
-          ZIP="./TokoKu_v3.22.5_RumahMakan_DiKolomPelanggan_RangMudoJr.zip"
+          ZIP="./TokoKu_v3.22.5_RumahMakan_StokMinusPlus_AtasBawah_RangMudoJr.zip"
 
           if [ ! -f "$ZIP" ]; then
             echo "ERROR: ZIP v3.22.3 tidak ditemukan."
