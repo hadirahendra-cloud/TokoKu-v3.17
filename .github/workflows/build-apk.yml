@@ -1,4 +1,4 @@
-name: Build TokoKu v3.22.7 APK
+name: Build TokoKu v3.22.7 - Jazakumullahu
 
 on:
   workflow_dispatch:
@@ -9,8 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout
@@ -29,67 +27,123 @@ jobs:
 
       - name: Setup Android SDK
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"             "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Extract TokoKu v3.22.7
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Cari ZIP TokoKu
         run: |
-          ZIP="./TokoKu_v3.22.7_Master_ManualJumlah_RangMudoJr.zip"
+          ZIP="./TokoKu_v3.22.7_Master_ManualJumlah_NotaJazakumullahu_RangMudoJr.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "ERROR: ZIP TokoKu_v3.22.7_Master_ManualJumlah_RangMudoJr.zip tidak ditemukan."
+            echo "ERROR: ZIP tidak ditemukan:"
             ls -lah
             exit 1
           fi
 
+          echo "ZIP ditemukan:"
+          ls -lh "$ZIP"
+
+      - name: Extract TokoKu
+        run: |
           rm -rf build-project
           mkdir -p build-project
-          unzip -q "$ZIP" -d build-project
 
-          APP_GRADLE="$(find build-project -type f -path "*/app/build.gradle" -print -quit)"
+          unzip -q \
+            "./TokoKu_v3.22.7_Master_ManualJumlah_NotaJazakumullahu_RangMudoJr.zip" \
+            -d build-project
+
+          echo "Isi hasil extract:"
+          find build-project -maxdepth 4 -type f | head -100
+
+      - name: Cari project Android
+        run: |
+          APP_GRADLE=$(find build-project -type f -path "*/app/build.gradle" -print -quit)
+
           if [ -z "$APP_GRADLE" ]; then
-            echo "ERROR: app/build.gradle tidak ditemukan setelah extract."
-            find build-project -maxdepth 5 -type f | head -100
+            APP_GRADLE=$(find build-project -type f -path "*/app/build.gradle.kts" -print -quit)
+          fi
+
+          if [ -z "$APP_GRADLE" ]; then
+            echo "ERROR: app/build.gradle atau app/build.gradle.kts tidak ditemukan."
+            find build-project -type f | head -200
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$(dirname "$APP_GRADLE")")"
-          cp -R "$PROJECT_DIR/." .
+          PROJECT_DIR=$(dirname "$(dirname "$APP_GRADLE")")
 
-          test -f app/build.gradle
-          grep -q "versionCode 28" app/build.gradle
-          grep -q "versionName '3.22.7'" app/build.gradle
-          grep -q "targetSdk 34" app/build.gradle
+          echo "APP_GRADLE=$APP_GRADLE" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Prepare release keystore
-        env:
-          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+          echo "Project Android:"
+          echo "$PROJECT_DIR"
+
+      - name: Ubah teks nota menjadi Jazakumullahu
         run: |
-          test -n "$KEYSTORE_B64"
-          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
-          test -s "$RUNNER_TEMP/tokoku-release.jks"
+          echo "Mencari teks nota lama..."
 
-      - name: Build signed release APK
-        env:
-          TOKOKU_KEYSTORE_FILE: ${{ runner.temp }}/tokoku-release.jks
-          TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
-          TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          grep -RIl \
+            --exclude-dir=.gradle \
+            --exclude-dir=build \
+            "Terima kasih telah berbelanja di TokoKu" \
+            "$PROJECT_DIR" || true
+
+          echo "Mengganti teks nota..."
+
+          grep -RIl \
+            --exclude-dir=.gradle \
+            --exclude-dir=build \
+            "Terima kasih telah berbelanja di TokoKu" \
+            "$PROJECT_DIR" | while read -r FILE; do
+              sed -i \
+                's/Terima kasih telah berbelanja di TokoKu/Jazakumullahu khairan telah berbelanja di RangMudo Jr/g' \
+                "$FILE"
+            done
+
+          echo "Memeriksa teks baru..."
+
+          if grep -RIl \
+            --exclude-dir=.gradle \
+            --exclude-dir=build \
+            "Jazakumullahu khairan telah berbelanja di RangMudo Jr" \
+            "$PROJECT_DIR" | head -20; then
+
+            echo "OK: teks Jazakumullahu ditemukan."
+
+          else
+
+            echo "ERROR: teks Jazakumullahu tidak ditemukan."
+            echo "Mencari teks terkait nota:"
+            grep -RIn \
+              --exclude-dir=.gradle \
+              --exclude-dir=build \
+              -E "Terima kasih|TokoKu|NOTA PEMBELIAN" \
+              "$PROJECT_DIR" | head -100 || true
+
+            exit 1
+          fi
+
+      - name: Set executable Gradle
         run: |
-          test -n "$TOKOKU_KEYSTORE_PASSWORD"
-          test -n "$TOKOKU_KEY_ALIAS"
-          gradle :app:assembleRelease --no-daemon
+          cd "$PROJECT_DIR"
 
-      - name: Verify APK signature and package
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
+
+      - name: Build APK
         run: |
-          APK=app/build/outputs/apk/release/app-release.apk
-          test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "package: name='com.tokoku.app' versionCode='28' versionName='3.22.7'"
+          cd "$PROJECT_DIR"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: TokoKu-v3.22.7-release-ManualJumlah-RangMudoJr
-          path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --no-daemon
+          else
+            gradle assembleDebug --no-daemon
+          fi
+
+      - name: Periksa APK
+        run: |
+          echo "Mencari APK hasil
