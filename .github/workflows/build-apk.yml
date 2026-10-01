@@ -34,11 +34,11 @@ jobs:
             "build-tools;35.0.0"
 
       - name: Extract TokoKu v3.22.7
-        run: |
-          ZIP="./TokoKu_v3.22.7_Master_RangMudoJr.zip"
+  run: |
+    ZIP="./TokoKu_v3.22.7_Master_ManualJumlah_RangMudoJr.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "ERROR: ZIP v3.22.7 tidak ditemukan."
+            echo "ERROR: ZIP TokoKu_v3.22.7_Master_ManualJumlah_RangMudoJr.zip tidak ditemukan."
             ls -lah
             exit 1
           fi
