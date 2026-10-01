@@ -10,12 +10,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -24,44 +20,178 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle 8.7
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "platforms;android-35" \
+            "build-tools;34.0.0" \
+            "build-tools;35.0.0"
+
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Prepare Android SDK
+      - name: Find ZIP TokoKu
+        shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la "$ANDROID_HOME"
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+          echo "Mencari file ZIP TokoKu..."
 
-      - name: Check TokoKu Project
+          ZIP=$(find . -type f -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: File ZIP TokoKu tidak ditemukan."
+            echo "Isi repository:"
+            find . -maxdepth 3 -type f | head -200
+            exit 1
+          fi
+
+          echo "ZIP ditemukan:"
+          echo "$ZIP"
+
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Extract ZIP
+        shell: bash
         run: |
-          echo "=== FILE PROJECT ==="
-          ls -la
-          echo "=== APP ==="
-          ls -la app
-          test -f settings.gradle
-          test -f build.gradle
-          test -f app/build.gradle
-          echo "Project TokoKu OK"
+          rm -rf tokoku-src
+          mkdir -p tokoku-src
+
+          echo "Mengekstrak:"
+          echo "$ZIP"
+
+          unzip -q "$ZIP" -d tokoku-src
+
+          echo "Isi hasil ekstrak:"
+          find tokoku-src -maxdepth 5 -type f | head -200
+
+      - name: Find Android Project
+        shell: bash
+        run: |
+          echo "Mencari project Android..."
+
+          PROJECT_DIR=""
+
+          while IFS= read -r settings; do
+            DIR=$(dirname "$settings")
+
+            if [ -f "$DIR/app/build.gradle" ] || \
+               [ -f "$DIR/app/build.gradle.kts" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(find tokoku-src -type f \( \
+            -name "settings.gradle" -o \
+            -name "settings.gradle.kts" \
+          \))
+
+          if [ -z "$PROJECT_DIR" ]; then
+            while IFS= read -r appgradle; do
+              PROJECT_DIR=$(dirname "$(dirname "$appgradle")")
+              break
+            done < <(find tokoku-src -type f \( \
+              -path "*/app/build.gradle" -o \
+              -path "*/app/build.gradle.kts" \
+            \))
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Project Android tidak ditemukan."
+            echo "Daftar file Gradle:"
+            find tokoku-src -type f \( \
+              -name "build.gradle" -o \
+              -name "build.gradle.kts" -o \
+              -name "settings.gradle" -o \
+              -name "settings.gradle.kts" \
+            \)
+            exit 1
+          fi
+
+          PROJECT_DIR=$(realpath "$PROJECT_DIR")
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "================================="
+          echo "PROJECT ANDROID DITEMUKAN:"
+          echo "$PROJECT_DIR"
+          echo "================================="
+
+          echo "Isi project:"
+          ls -la "$PROJECT_DIR"
+
+      - name: Prepare Gradle
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ -f "./gradlew" ]; then
+            echo "Menggunakan Gradle Wrapper."
+            chmod +x ./gradlew
+            ./gradlew --version
+          else
+            echo "Gradle Wrapper tidak ada."
+            echo "Menggunakan Gradle 8.7."
+            gradle --version
+          fi
 
       - name: Build APK Debug
+        shell: bash
         run: |
-          gradle :app:assembleDebug --no-daemon
+          cd "$PROJECT_DIR"
+
+          echo "================================="
+          echo "MEMULAI BUILD APK"
+          echo "================================="
+
+          if [ -f "./gradlew" ]; then
+            ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          else
+            gradle :app:assembleDebug --no-daemon --stacktrace
+          fi
+
+      - name: Find APK
+        shell: bash
+        run: |
+          echo "Mencari APK hasil build..."
+
+          APK=$(find "$PROJECT_DIR" -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            -print -quit)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK tidak ditemukan."
+
+            echo "Daftar file APK:"
+            find "$PROJECT_DIR" -type f -name "*.apk" -print
+
+            exit 1
+          fi
+
+          echo "APK ditemukan:"
+          echo "$APK"
+
+          cp "$APK" "$GITHUB_WORKSPACE/TokoKu-v3.22.7-debug.apk"
 
       - name: Check APK
+        shell: bash
         run: |
-          ls -lh app/build/outputs/apk/debug/
-          test -s app/build/outputs/apk/debug/app-debug.apk
+          echo "================================="
+          echo "APK BERHASIL DIBUAT"
+          echo "================================="
+
+          ls -lh "$GITHUB_WORKSPACE/TokoKu-v3.22.7-debug.apk"
+
+          file "$GITHUB_WORKSPACE/TokoKu-v3.22.7-debug.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.7-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: TokoKu-v3.22.7-APK
+          path: TokoKu-v3.22.7-debug.apk
           if-no-files-found: error
