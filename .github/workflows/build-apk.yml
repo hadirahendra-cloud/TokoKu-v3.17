@@ -40,7 +40,7 @@ jobs:
           else
             ZIP=$(find . -maxdepth 2 -type f \
               -name
-"TokoKu-v3.22.7-Penjualan-FIX-FINAL.zip"" \
+"TokoKu-v3.22.7-Penjualan-FIX-FINAL.zip" \
               | head -n 1)
 
             if [ -z "$ZIP" ]; then
