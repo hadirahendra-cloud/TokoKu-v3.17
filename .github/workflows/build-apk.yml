@@ -39,7 +39,8 @@ jobs:
             echo "Project ditemukan di root repository."
           else
             ZIP=$(find . -maxdepth 2 -type f \
-              -name "TokoKu_v3.22.7_Master_ManualJumlah_RangMudoJr.zip" \
+              -name
+"TokoKu-v3.22.7-Penjualan-FIX-FINAL.zip"" \
               | head -n 1)
 
             if [ -z "$ZIP" ]; then
