@@ -6,12 +6,15 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -20,142 +23,141 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Prepare Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-
-          sdkmanager --version
-
           yes | sdkmanager --licenses || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-
-      - name: Find ZIP TokoKu
+      - name: Find TokoKu Project
         run: |
-          echo "Mencari ZIP..."
+          echo "Mencari project TokoKu..."
 
-          ZIP=$(find . -type f -iname "*.zip" -print -quit)
-
-          if [ -z "$ZIP" ]; then
-            echo "ERROR: ZIP TokoKu tidak ditemukan."
-            echo "Isi repository:"
-            find . -maxdepth 4 -type f | head -200
-            exit 1
-          fi
-
-          echo "ZIP ditemukan: $ZIP"
-          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
-
-      - name: Extract ZIP
-        run: |
-          rm -rf tokoku-src
-          mkdir -p tokoku-src
-
-          unzip -q "$ZIP" -d tokoku-src
-
-          echo "ZIP berhasil diekstrak."
-          find tokoku-src -maxdepth 5 -type f | head -200
-
-      - name: Find Android Project
-        run: |
-          PROJECT_DIR=""
-
-          while IFS= read -r settings; do
-            DIR=$(dirname "$settings")
-
-            if [ -d "$DIR/app" ] && {
-              [ -f "$DIR/app/build.gradle" ] ||
-              [ -f "$DIR/app/build.gradle.kts" ];
-            }; then
-              PROJECT_DIR="$DIR"
-              break
-            fi
-          done < <(
-            find tokoku-src -type f \
-              \( -name "settings.gradle" -o -name "settings.gradle.kts" \)
-          )
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "Mencari berdasarkan app/build.gradle..."
-
-            APP_GRADLE=$(find tokoku-src -type f \
-              \( -path "*/app/build.gradle" -o \
-                 -path "*/app/build.gradle.kts" \) \
-              -print -quit)
-
-            if [ -n "$APP_GRADLE" ]; then
-              PROJECT_DIR=$(dirname "$(dirname "$APP_GRADLE")")
-            fi
-          fi
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Project Android tidak ditemukan."
-            echo "File Gradle yang ditemukan:"
-            find tokoku-src -type f \
-              \( -name "build.gradle" -o \
-                 -name "build.gradle.kts" -o \
-                 -name "settings.gradle" -o \
-                 -name "settings.gradle.kts" \)
-            exit 1
-          fi
-
-          PROJECT_DIR=$(realpath "$PROJECT_DIR")
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-          echo "================================"
-          echo "PROJECT ANDROID:"
-          echo "$PROJECT_DIR"
-          echo "================================"
-
-      - name: Build APK
-        run: |
-          cd "$PROJECT_DIR"
-
-          echo "Memulai build TokoKu..."
-
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew :app:assembleDebug \
-              --no-daemon \
-              --stacktrace
+          if [ -f "app/build.gradle" ] || [ -f "app/build.gradle.kts" ]; then
+            echo "Project ditemukan di root repository."
           else
-            gradle :app:assembleDebug \
-              --no-daemon \
-              --stacktrace
+            ZIP=$(find . -maxdepth 2 -type f \
+              -name "TokoKu_v3.22.7_Master_ManualJumlah_RangMudoJr.zip" \
+              | head -n 1)
+
+            if [ -z "$ZIP" ]; then
+              echo "ERROR: ZIP TokoKu tidak ditemukan."
+              exit 1
+            fi
+
+            echo "ZIP ditemukan: $ZIP"
+            mkdir -p tokoku_extract
+            unzip -q "$ZIP" -d tokoku_extract
+
+            PROJECT=$(find tokoku_extract -type f \
+              \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+              -path "*/app/*" | head -n 1)
+
+            if [ -z "$PROJECT" ]; then
+              echo "ERROR: Project Android tidak ditemukan dalam ZIP."
+              exit 1
+            fi
+
+            PROJECT_DIR=$(dirname "$(dirname "$PROJECT")")
+            echo "Project: $PROJECT_DIR"
+
+            cp -R "$PROJECT_DIR"/. ./ 
           fi
 
-      - name: Find APK
+      - name: Prepare Gradle
         run: |
-          APK=$(find "$PROJECT_DIR" -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            -print -quit)
+          chmod +x gradlew 2>/dev/null || true
+
+          if [ -f "gradlew" ]; then
+            ./gradlew --version
+          else
+            echo "ERROR: gradlew tidak ditemukan."
+            exit 1
+          fi
+
+      - name: Decode Release Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ERROR: Secret TOKOKU_KEYSTORE_BASE64 belum tersedia."
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | base64 --decode > tokoku-release.jks
+
+          if [ ! -s tokoku-release.jks ]; then
+            echo "ERROR: Keystore gagal dibuat."
+            exit 1
+          fi
+
+          echo "Keystore berhasil disiapkan."
+
+      - name: Verify TokoKu Configuration
+        run: |
+          echo "Checking application ID..."
+
+          grep -R "com.tokoku.app" app \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            || true
+
+          echo "Checking version..."
+
+          grep -R "3.22.7" app \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            || true
+
+      - name: Build Signed Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+        run: |
+          ./gradlew :app:assembleRelease \
+            --no-daemon \
+            --stacktrace \
+            -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/tokoku-release.jks" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEYSTORE_PASSWORD"
+
+      - name: Locate Release APK
+        run: |
+          echo "Mencari APK release..."
+
+          APK=$(find app/build/outputs/apk/release \
+            -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan."
-            find "$PROJECT_DIR" -type f -name "*.apk"
+            echo "ERROR: APK release tidak ditemukan."
             exit 1
           fi
 
-          echo "APK ditemukan:"
-          echo "$APK"
+          echo "APK ditemukan: $APK"
 
-          cp "$APK" "$GITHUB_WORKSPACE/TokoKu-v3.22.7-debug.apk"
+          cp "$APK" \
+            "TokoKu-v3.22.7-signed.apk"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Verify APK Signature
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" \
+            -name apksigner | sort -V | tail -n 1)
+
+          echo "Menggunakan: $APKSIGNER"
+
+          "$APKSIGNER" verify --verbose \
+            "TokoKu-v3.22.7-signed.apk"
+
+          echo "SIGNATURE VALID."
+
+      - name: Upload Signed APK
+        uses: actions/upload-artifact@v7
         with:
-          name: TokoKu-v3.22.7-APK
-          path: TokoKu-v3.22.7-debug.apk
+          name: TokoKu-v3.22.7-SIGNED
+          path: TokoKu-v3.22.7-signed.apk
           if-no-files-found: error
+          retention-days: 30
+          overwrite: true
