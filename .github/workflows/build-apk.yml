@@ -28,18 +28,18 @@ jobs:
       - name: Setup Android SDK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Cari ZIP TokoKu
+      - name: Cek ZIP
         run: |
           ZIP="./TokoKu_v3.22.7_Master_ManualJumlah_NotaJazakumullahu_RangMudoJr.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "ERROR: ZIP tidak ditemukan:"
+            echo "ERROR: ZIP tidak ditemukan."
+            echo "File yang tersedia:"
             ls -lah
             exit 1
           fi
@@ -47,7 +47,7 @@ jobs:
           echo "ZIP ditemukan:"
           ls -lh "$ZIP"
 
-      - name: Extract TokoKu
+      - name: Extract ZIP
         run: |
           rm -rf build-project
           mkdir -p build-project
@@ -56,82 +56,103 @@ jobs:
             "./TokoKu_v3.22.7_Master_ManualJumlah_NotaJazakumullahu_RangMudoJr.zip" \
             -d build-project
 
-          echo "Isi hasil extract:"
+          echo "Isi project:"
           find build-project -maxdepth 4 -type f | head -100
 
-      - name: Cari project Android
+      - name: Cari Project Android
         run: |
-          APP_GRADLE=$(find build-project -type f -path "*/app/build.gradle" -print -quit)
+          APP_GRADLE=$(find build-project -type f -path '*/app/build.gradle' -print -quit)
 
           if [ -z "$APP_GRADLE" ]; then
-            APP_GRADLE=$(find build-project -type f -path "*/app/build.gradle.kts" -print -quit)
+            APP_GRADLE=$(find build-project -type f -path '*/app/build.gradle.kts' -print -quit)
           fi
 
           if [ -z "$APP_GRADLE" ]; then
-            echo "ERROR: app/build.gradle atau app/build.gradle.kts tidak ditemukan."
+            echo "ERROR: app/build.gradle tidak ditemukan."
             find build-project -type f | head -200
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$(dirname "$APP_GRADLE")")
 
+          echo "APP_GRADLE=$APP_GRADLE"
+          echo "PROJECT_DIR=$PROJECT_DIR"
+
           echo "APP_GRADLE=$APP_GRADLE" >> "$GITHUB_ENV"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Project Android:"
-          echo "$PROJECT_DIR"
-
-      - name: Ubah teks nota menjadi Jazakumullahu
+      - name: Pastikan Teks Nota Baru
         run: |
-          echo "Mencari teks nota lama..."
+          python3 <<'PY'
+          import os
+          from pathlib import Path
 
-          grep -RIl \
-            --exclude-dir=.gradle \
-            --exclude-dir=build \
-            "Terima kasih telah berbelanja di TokoKu" \
-            "$PROJECT_DIR" || true
+          project = Path(os.environ["PROJECT_DIR"])
 
-          echo "Mengganti teks nota..."
+          old_text = "Terima kasih telah berbelanja di TokoKu"
+          new_text = "Jazakumullahu khairan telah berbelanja di RangMudo Jr"
 
-          grep -RIl \
-            --exclude-dir=.gradle \
-            --exclude-dir=build \
-            "Terima kasih telah berbelanja di TokoKu" \
-            "$PROJECT_DIR" | while read -r FILE; do
-              sed -i \
-                's/Terima kasih telah berbelanja di TokoKu/Jazakumullahu khairan telah berbelanja di RangMudo Jr/g' \
-                "$FILE"
-            done
+          extensions = {
+              ".html",
+              ".htm",
+              ".js",
+              ".jsx",
+              ".ts",
+              ".tsx",
+              ".java",
+              ".kt",
+              ".kts",
+              ".xml",
+              ".json",
+              ".txt",
+              ".gradle",
+              ".properties"
+          }
 
-          echo "Memeriksa teks baru..."
+          found_old = False
+          found_new = False
+          changed_files = []
 
-          if grep -RIl \
-            --exclude-dir=.gradle \
-            --exclude-dir=build \
-            "Jazakumullahu khairan telah berbelanja di RangMudo Jr" \
-            "$PROJECT_DIR" | head -20; then
+          for path in project.rglob("*"):
+              if not path.is_file():
+                  continue
 
-            echo "OK: teks Jazakumullahu ditemukan."
+              if path.suffix.lower() not in extensions:
+                  continue
 
-          else
+              try:
+                  text = path.read_text(encoding="utf-8")
+              except Exception:
+                  continue
 
-            echo "ERROR: teks Jazakumullahu tidak ditemukan."
-            echo "Mencari teks terkait nota:"
-            grep -RIn \
-              --exclude-dir=.gradle \
-              --exclude-dir=build \
-              -E "Terima kasih|TokoKu|NOTA PEMBELIAN" \
-              "$PROJECT_DIR" | head -100 || true
+              if old_text in text:
+                  found_old = True
+                  text = text.replace(old_text, new_text)
+                  path.write_text(text, encoding="utf-8")
+                  changed_files.append(str(path))
 
-            exit 1
-          fi
+              if new_text in text:
+                  found_new = True
 
-      - name: Set executable Gradle
+          print("File yang diubah:")
+          for f in changed_files:
+              print(f)
+
+          print("Teks lama ditemukan:", found_old)
+          print("Teks baru ditemukan:", found_new)
+
+          if not found_new:
+              print("ERROR: Teks Jazakumullahu tidak ditemukan.")
+              print("Build dihentikan agar tidak menghasilkan APK dengan nota lama.")
+              raise SystemExit(1)
+
+          print("OK: Teks nota baru berhasil ditemukan.")
+          PY
+
+      - name: Set Gradle Executable
         run: |
-          cd "$PROJECT_DIR"
-
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
+          if [ -f "$PROJECT_DIR/gradlew" ]; then
+            chmod +x "$PROJECT_DIR/gradlew"
           fi
 
       - name: Build APK
@@ -146,4 +167,29 @@ jobs:
 
       - name: Periksa APK
         run: |
-          echo "Mencari APK hasil
+          echo "APK hasil build:"
+
+          find "$PROJECT_DIR" \
+            -type f \
+            -name "*.apk" \
+            -print
+
+          APK=$(find "$PROJECT_DIR" \
+            -type f \
+            -name "*.apk" \
+            -print -quit)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK tidak ditemukan."
+            exit 1
+          fi
+
+          echo "APK ditemukan:"
+          ls -lh "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.7-Jazakumullahu-RangMudoJr
+          path: '**/build/outputs/apk/**/*.apk'
+          if-no-files-found: error
