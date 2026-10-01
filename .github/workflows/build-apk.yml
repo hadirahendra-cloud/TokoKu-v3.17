@@ -63,19 +63,17 @@ jobs:
             PROJECT_DIR=$(dirname "$(dirname "$PROJECT")")
             echo "Project: $PROJECT_DIR"
 
-            cp -R "$PROJECT_DIR"/. ./ 
+            cp -R "$PROJECT_DIR"/. ./
           fi
 
-      - name: Prepare Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.7'
+
+      - name: Check Gradle
         run: |
-          chmod +x gradlew 2>/dev/null || true
-
-          if [ -f "gradlew" ]; then
-            ./gradlew --version
-          else
-            echo "ERROR: gradlew tidak ditemukan."
-            exit 1
-          fi
+          gradle --version
 
       - name: Decode Release Keystore
         env:
@@ -116,7 +114,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
         run: |
-          ./gradlew :app:assembleRelease \
+          gradle :app:assembleRelease \
             --no-daemon \
             --stacktrace \
             -Pandroid.injected.signing.store.file="$GITHUB_WORKSPACE/tokoku-release.jks" \
@@ -138,8 +136,7 @@ jobs:
 
           echo "APK ditemukan: $APK"
 
-          cp "$APK" \
-            "TokoKu-v3.22.7-signed.apk"
+          cp "$APK" "TokoKu-v3.22.7-signed.apk"
 
       - name: Verify APK Signature
         run: |
@@ -154,7 +151,7 @@ jobs:
           echo "SIGNATURE VALID."
 
       - name: Upload Signed APK
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: TokoKu-v3.22.7-SIGNED
           path: TokoKu-v3.22.7-signed.apk
