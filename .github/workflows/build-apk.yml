@@ -21,30 +21,32 @@ jobs:
           find . -maxdepth 3 -type f | head -100
 
             - name: Cari ZIP TokoKu
-        run: |
-          echo "Mencari file ZIP TokoKu..."
+  run: |
+    echo "Mencari file ZIP..."
 
-          ZIP=$(git ls-files | grep -Ei '\.zip$' | head -n 1)
+    ZIP=$(find . -type f -iname "*.zip" -print -quit)
 
-          if [ -z "$ZIP" ]; then
-            echo "ERROR: File ZIP tidak ditemukan!"
-            echo "Daftar file ZIP:"
-            find . -type f -iname "*.zip" -print
-            exit 1
-          fi
+    if [ -z "$ZIP" ]; then
+      echo "ERROR: Tidak ada file ZIP."
+      exit 1
+    fi
 
-          echo "ZIP ditemukan:"
-          echo "$ZIP"
+    echo "ZIP ditemukan:"
+    echo "$ZIP"
 
-          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+    echo "ZIP=$ZIP" >> "$GITHUB_ENV"
       - name: Ekstrak ZIP TokoKu
-        run: |
-          rm -rf tokoku-src
-          mkdir -p tokoku-src
-          unzip -q "$ZIP" -d tokoku-src
+  run: |
+    rm -rf tokoku-src
+    mkdir -p tokoku-src
 
-          echo "Isi ZIP:"
-          find tokoku-src -maxdepth 4 -type f | head -100
+    echo "ZIP yang akan diekstrak:"
+    echo "$ZIP"
+
+    unzip -q "$ZIP" -d tokoku-src
+
+    echo "Isi ZIP:"
+    find tokoku-src -maxdepth 4 -type f | head -100
 
       - name: Cari Project Android
         run: |
