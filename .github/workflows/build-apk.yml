@@ -20,21 +20,23 @@ jobs:
           echo "Isi repository:"
           find . -maxdepth 3 -type f | head -100
 
-      - name: Cari ZIP TokoKu
+            - name: Cari ZIP TokoKu
         run: |
-          echo "Mencari file ZIP..."
+          echo "Mencari file ZIP TokoKu..."
 
-          find . -type f -name "*.zip" -print
-
-          ZIP=$(find . -type f -name "*.zip" -print -quit)
+          ZIP=$(git ls-files | grep -Ei '\.zip$' | head -n 1)
 
           if [ -z "$ZIP" ]; then
-            echo "ERROR: Tidak ada file ZIP!"
+            echo "ERROR: File ZIP tidak ditemukan!"
+            echo "Daftar file ZIP:"
+            find . -type f -iname "*.zip" -print
             exit 1
           fi
 
           echo "ZIP ditemukan:"
           echo "$ZIP"
+
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
       - name: Ekstrak ZIP TokoKu
         run: |
           rm -rf tokoku-src
