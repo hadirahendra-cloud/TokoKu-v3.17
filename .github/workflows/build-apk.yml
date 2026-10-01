@@ -1,10 +1,10 @@
-name: Build TokoKu
+name: Build TokoKu v3.22.7
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   build:
@@ -14,77 +14,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cek File Repository
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
         run: |
-          echo "GitHub Actions berhasil berjalan."
-          echo "Isi repository:"
-          find . -maxdepth 3 -type f | head -100
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-            - name: Cari ZIP TokoKu
-  run: |
-    echo "Mencari file ZIP..."
-
-    ZIP=$(find . -type f -iname "*.zip" -print -quit)
-
-    if [ -z "$ZIP" ]; then
-      echo "ERROR: Tidak ada file ZIP."
-      exit 1
-    fi
-
-    echo "ZIP ditemukan:"
-    echo "$ZIP"
-
-    echo "ZIP=$ZIP" >> "$GITHUB_ENV"
-      - name: Ekstrak ZIP TokoKu
-  run: |
-    rm -rf tokoku-src
-    mkdir -p tokoku-src
-
-    echo "ZIP yang akan diekstrak:"
-    echo "$ZIP"
-
-    unzip -q "$ZIP" -d tokoku-src
-
-    echo "Isi ZIP:"
-    find tokoku-src -maxdepth 4 -type f | head -100
-
-      - name: Cari Project Android
+      - name: Check Project
         run: |
-          APP_GRADLE=$(find tokoku-src -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -path "*/app/*" -print -quit)
+          test -f settings.gradle
+          test -f build.gradle
+          test -f app/build.gradle
+          test -f app/src/main/assets/index.html
+          echo "Project TokoKu ditemukan."
 
-          if [ -z "$APP_GRADLE" ]; then
-            echo "ERROR: app/build.gradle tidak ditemukan!"
-            find tokoku-src -type f | head -200
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$(dirname "$APP_GRADLE")")
-
-          echo "Project Android ditemukan:"
-          echo "$PROJECT_DIR"
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Build APK Debug
+      - name: Build APK
         run: |
-          cd "$PROJECT_DIR"
+          gradle :app:assembleDebug --no-daemon
 
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew :app:assembleDebug --no-daemon
-          else
-            gradle :app:assembleDebug --no-daemon
-          fi
-
-      - name: Cek APK
+      - name: Check APK
         run: |
-          echo "Mencari APK hasil build..."
-          find "$PROJECT_DIR" -type f -name "*.apk" -print
+          ls -lh app/build/outputs/apk/debug/
+          test -s app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-APK
-          path: |
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          name: TokoKu-v3.22.7-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
