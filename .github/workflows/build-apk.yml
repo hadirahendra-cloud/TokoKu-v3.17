@@ -36,6 +36,19 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
+           - name: Cari ZIP Master
+        run: |
+          ZIP=$(find . -type f -name "TokoKu-v3.22.7-Penjualan-FIX-READY.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: ZIP tidak ditemukan!"
+            find . -type f -name "*.zip" -print
+            exit 1
+          fi
+
+          echo "ZIP ditemukan: $ZIP"
+          echo "ZIP_PATH=$ZIP" >> "$GITHUB_ENV"
+
       - name: Check Project
         run: |
           test -f app/build.gradle
