@@ -35,3 +35,52 @@ jobs:
 
           echo "ZIP ditemukan:"
           echo "$ZIP"
+      - name: Ekstrak ZIP TokoKu
+        run: |
+          rm -rf tokoku-src
+          mkdir -p tokoku-src
+          unzip -q "$ZIP" -d tokoku-src
+
+          echo "Isi ZIP:"
+          find tokoku-src -maxdepth 4 -type f | head -100
+
+      - name: Cari Project Android
+        run: |
+          APP_GRADLE=$(find tokoku-src -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -path "*/app/*" -print -quit)
+
+          if [ -z "$APP_GRADLE" ]; then
+            echo "ERROR: app/build.gradle tidak ditemukan!"
+            find tokoku-src -type f | head -200
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$(dirname "$APP_GRADLE")")
+
+          echo "Project Android ditemukan:"
+          echo "$PROJECT_DIR"
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Build APK Debug
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew :app:assembleDebug --no-daemon
+          else
+            gradle :app:assembleDebug --no-daemon
+          fi
+
+      - name: Cek APK
+        run: |
+          echo "Mencari APK hasil build..."
+          find "$PROJECT_DIR" -type f -name "*.apk" -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-APK
+          path: |
+            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
