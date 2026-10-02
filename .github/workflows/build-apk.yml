@@ -34,20 +34,20 @@ jobs:
       - name: Find TokoKu Printer ZIP
         shell: bash
         run: |
-          echo "=== MENCARI ZIP TOKOKU PRINTER ==="
+          echo "=== MENCARI ZIP TOKOKU ==="
 
           ZIP_FILE=$(find . -type f \
             -iname "*Printer*Bluetooth*Source*FIXED*.zip" \
             | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP PRINTER BLUETOOTH TIDAK DITEMUKAN"
+            echo "ERROR: ZIP TOKOKU TIDAK DITEMUKAN"
             echo "=== DAFTAR ZIP ==="
             find . -type f -iname "*.zip" -print
             exit 1
           fi
 
-          echo "ZIP YANG AKAN DIGUNAKAN:"
+          echo "ZIP DITEMUKAN:"
           echo "$ZIP_FILE"
 
           echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
@@ -124,20 +124,6 @@ jobs:
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Inspect project
-        shell: bash
-        run: |
-          echo "=== PROJECT DIRECTORY ==="
-          echo "$PROJECT_DIR"
-
-          echo "=== ISI PROJECT ==="
-          ls -la "$PROJECT_DIR"
-
-          if [ -d "$PROJECT_DIR/app" ]; then
-            echo "=== APP DIRECTORY ==="
-            ls -la "$PROJECT_DIR/app"
-          fi
-
       - name: Prepare Gradle
         shell: bash
         run: |
@@ -173,11 +159,6 @@ jobs:
         run: |
           echo "=== MENCARI APK ==="
 
-          find "$PROJECT_DIR" \
-            -type f \
-            -name "*.apk" \
-            -print
-
           APK=$(find "$PROJECT_DIR" \
             -type f \
             \( -name "*debug*.apk" -o -name "*.apk" \) \
@@ -194,15 +175,15 @@ jobs:
           cp "$APK" \
             "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
 
-      - name: Sign APK with TokoKu Keystore
+      - name: Test Key Password
         shell: bash
         env:
           KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
         run: |
-          echo "=== SIGN APK TOKOKU ==="
+          echo "=== TES PASSWORD KEY ==="
+          echo "Password KEY akan dicoba sama dengan password KEYSTORE."
 
           if [ -z "$KEYSTORE_B64" ]; then
             echo "ERROR: TOKOKU_KEYSTORE_BASE64 belum tersedia."
@@ -219,25 +200,39 @@ jobs:
             exit 1
           fi
 
-          if [ -z "$KEY_PASSWORD" ]; then
-            echo "ERROR: TOKOKU_KEY_PASSWORD belum tersedia."
-            exit 1
-          fi
+          echo "$KEYSTORE_B64" | base64 --decode \
+            > "$RUNNER_TEMP/tokoku.jks"
 
-          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku.jks"
+          keytool -certreq \
+            -alias "$KEY_ALIAS" \
+            -keystore "$RUNNER_TEMP/tokoku.jks" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEYSTORE_PASSWORD" \
+            -file "$RUNNER_TEMP/test.csr"
 
-          if [ ! -s "$RUNNER_TEMP/tokoku.jks" ]; then
-            echo "ERROR: File keystore kosong atau gagal decode."
-            exit 1
-          fi
+          echo "======================================"
+          echo "PASSWORD KEY = PASSWORD KEYSTORE"
+          echo "TES BERHASIL."
+          echo "Kita lanjut signing APK."
+          echo "======================================"
 
-          echo "=== SIGNING APK ==="
+      - name: Sign APK
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+        run: |
+          echo "=== SIGN APK TOKOKU ==="
+
+          echo "$KEYSTORE_B64" | base64 --decode \
+            > "$RUNNER_TEMP/tokoku.jks"
 
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
             --ks "$RUNNER_TEMP/tokoku.jks" \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass "pass:$KEYSTORE_PASSWORD" \
-            --key-pass "pass:$KEY_PASSWORD" \
+            --key-pass "pass:$KEYSTORE_PASSWORD" \
             --out "$RUNNER_TEMP/tokoku-signed.apk" \
             "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
 
@@ -255,14 +250,13 @@ jobs:
             "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
 
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
-            --verbose \
             "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
 
-          echo "=== VERIFY BERHASIL ==="
+          echo "=== APK VALID ==="
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.8-signed
+          name: TokoKu-v3.22.8-SIGNED
           path: TokoKu-v3.22.8-debug.apk
           if-no-files-found: error
