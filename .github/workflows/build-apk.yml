@@ -31,7 +31,7 @@ jobs:
         with:
           gradle-version: '8.7'
 
-     - name: Find TokoKu Printer ZIP
+      - name: Find TokoKu Printer ZIP
         shell: bash
         run: |
           echo "=== MENCARI ZIP TOKOKU PRINTER ==="
