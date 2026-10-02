@@ -190,7 +190,7 @@ jobs:
           echo "$APK"
 
           cp "$APK" \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.7-debug.apk"
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
 
       - name: Verify APK
         shell: bash
@@ -198,14 +198,14 @@ jobs:
           echo "=== VERIFY APK ==="
 
           ls -lh \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.7-debug.apk"
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
 
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.7-debug.apk"
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.7-debug
-          path: TokoKu-v3.22.7-debug.apk
+          name: TokoKu-v3.22.8-debug
+          path: TokoKu-v3.22.8-debug.apk
           if-no-files-found: error
