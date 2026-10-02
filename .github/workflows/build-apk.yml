@@ -124,13 +124,10 @@ jobs:
           TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
           TOKOKU_KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
-        run: |
-          chmod +x ./gradlew
-
-          ./gradlew \
-            :app:assembleRelease \
-            --no-daemon \
-            --stacktrace
+                  run: |
+            gradle :app:assembleRelease \
+              --no-daemon \
+              --stacktrace
 
       - name: Find APK
         run: |
