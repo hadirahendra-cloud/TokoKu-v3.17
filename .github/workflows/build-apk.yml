@@ -18,11 +18,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-            - name: Setup Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-          accept-android-sdk-licenses: true
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -32,10 +34,11 @@ jobs:
       - name: Find TokoKu ZIP
         shell: bash
         run: |
-          echo "=== FILE ZIP DI REPOSITORY ==="
-          find . -type f \( -iname "*.zip" -o -iname "*.ZIP" \) -print
+          echo "=== MENCARI ZIP TOKOKU ==="
 
-          ZIP_FILE=$(find . -type f \( -iname "*.zip" -o -iname "*.ZIP" \) | head -n 1)
+          ZIP_FILE=$(find . -type f \
+            \( -iname "*.zip" -o -iname "*.ZIP" \) \
+            | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: ZIP TokoKu tidak ditemukan."
@@ -53,10 +56,11 @@ jobs:
           rm -rf tokoku-project
           mkdir -p tokoku-project
 
+          echo "=== EXTRACT ZIP ==="
           unzip -q "$ZIP_FILE" -d tokoku-project
 
-          echo "=== ISI HASIL EXTRACT ==="
-          find tokoku-project -maxdepth 4 -type f | head -200
+          echo "=== HASIL EXTRACT ==="
+          find tokoku-project -maxdepth 5 -type f | head -200
 
       - name: Find TokoKu Android project
         shell: bash
@@ -65,34 +69,31 @@ jobs:
 
           PROJECT_DIR=""
 
-          # Cari settings.gradle.kts
-          FOUND=$(find tokoku-project -type f -name "settings.gradle.kts" | head -n 1)
+          FOUND=$(find tokoku-project \
+            -type f \
+            -name "settings.gradle.kts" \
+            | head -n 1)
 
           if [ -n "$FOUND" ]; then
             PROJECT_DIR=$(dirname "$FOUND")
           fi
 
-          # Kalau tidak ada, cari settings.gradle
           if [ -z "$PROJECT_DIR" ]; then
-            FOUND=$(find tokoku-project -type f -name "settings.gradle" | head -n 1)
+            FOUND=$(find tokoku-project \
+              -type f \
+              -name "settings.gradle" \
+              | head -n 1)
 
             if [ -n "$FOUND" ]; then
               PROJECT_DIR=$(dirname "$FOUND")
             fi
           fi
 
-          # Kalau masih tidak ada, cari app/build.gradle
           if [ -z "$PROJECT_DIR" ]; then
-            FOUND=$(find tokoku-project -type f -path "*/app/build.gradle" | head -n 1)
-
-            if [ -n "$FOUND" ]; then
-              PROJECT_DIR=$(dirname "$(dirname "$FOUND")")
-            fi
-          fi
-
-          # Kalau masih tidak ada, cari app/build.gradle.kts
-          if [ -z "$PROJECT_DIR" ]; then
-            FOUND=$(find tokoku-project -type f -path "*/app/build.gradle.kts" | head -n 1)
+            FOUND=$(find tokoku-project \
+              -type f \
+              -path "*/app/build.gradle.kts" \
+              | head -n 1)
 
             if [ -n "$FOUND" ]; then
               PROJECT_DIR=$(dirname "$(dirname "$FOUND")")
@@ -100,22 +101,35 @@ jobs:
           fi
 
           if [ -z "$PROJECT_DIR" ]; then
+            FOUND=$(find tokoku-project \
+              -type f \
+              -path "*/app/build.gradle" \
+              | head -n 1)
+
+            if [ -n "$FOUND" ]; then
+              PROJECT_DIR=$(dirname "$(dirname "$FOUND")")
+            fi
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "======================================"
+            echo "ERROR: PROJECT ANDROID TIDAK DITEMUKAN"
+            echo "======================================"
+
             echo ""
-            echo "========================================"
-            echo "ERROR: PROJECT ANDROID TOKOKU TIDAK DITEMUKAN"
-            echo "========================================"
-            echo ""
-            echo "File Gradle yang tersedia:"
-            find tokoku-project -type f \
+            echo "Struktur project yang ditemukan:"
+            find tokoku-project -maxdepth 6 -type f \
               \( -name "settings.gradle" \
               -o -name "settings.gradle.kts" \
               -o -name "build.gradle" \
-              -o -name "build.gradle.kts" \) \
+              -o -name "build.gradle.kts" \
+              -o -name "AndroidManifest.xml" \) \
               -print
+
             exit 1
           fi
 
-          echo "PROJECT TOKOKU DITEMUKAN:"
+          echo "PROJECT TOKOKU:"
           echo "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
@@ -132,8 +146,11 @@ jobs:
 
           echo ""
           echo "=== APP DIRECTORY ==="
+
           if [ -d "$PROJECT_DIR/app" ]; then
             ls -la "$PROJECT_DIR/app"
+          else
+            echo "PERINGATAN: folder app tidak ditemukan."
           fi
 
       - name: Prepare Gradle
@@ -141,12 +158,16 @@ jobs:
         run: |
           cd "$PROJECT_DIR"
 
+          echo "=== CEK GRADLE ==="
+
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
+
             echo "Gradle wrapper ditemukan."
             ./gradlew --version
           else
             echo "Gradle wrapper tidak ditemukan."
+            echo "Menggunakan Gradle 8.7."
             gradle --version
           fi
 
@@ -155,13 +176,20 @@ jobs:
         run: |
           cd "$PROJECT_DIR"
 
-          echo "=== BUILD TOKOKU DEBUG APK ==="
+          echo "======================================"
+          echo "BUILD TOKOKU DEBUG APK"
+          echo "======================================"
 
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew clean assembleDebug --stacktrace --no-daemon
+
+            ./gradlew assembleDebug \
+              --stacktrace \
+              --no-daemon
           else
-            gradle clean assembleDebug --stacktrace --no-daemon
+            gradle assembleDebug \
+              --stacktrace \
+              --no-daemon
           fi
 
       - name: Locate APK
@@ -169,29 +197,40 @@ jobs:
         run: |
           echo "=== MENCARI APK ==="
 
-          find "$PROJECT_DIR" -type f -name "*.apk" -print
+          find "$PROJECT_DIR" \
+            -type f \
+            -name "*.apk" \
+            -print
 
-          APK=$(find "$PROJECT_DIR" -type f \
-            \( -name "*debug*.apk" -o -name "*.apk" \) \
+          APK=$(find "$PROJECT_DIR" \
+            -type f \
+            -name "*debug*.apk" \
             | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan."
+            echo "ERROR: APK DEBUG TIDAK DITEMUKAN."
             exit 1
           fi
 
+          echo ""
           echo "APK DITEMUKAN:"
           echo "$APK"
 
-          cp "$APK" "$GITHUB_WORKSPACE/TokoKu-v3.22.9-debug.apk"
+          cp "$APK" \
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.9-debug.apk"
 
       - name: Verify APK
         shell: bash
         run: |
-          ls -lh "$GITHUB_WORKSPACE/TokoKu-v3.22.9-debug.apk"
+          echo "=== CEK APK ==="
+
+          ls -lh \
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.9-debug.apk"
 
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
             "$GITHUB_WORKSPACE/TokoKu-v3.22.9-debug.apk"
+
+          echo "APK BERHASIL DIVERIFIKASI."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
