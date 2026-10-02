@@ -2,393 +2,366 @@ name: Build TokoKu v3.22.9 Signed APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build TokoKu v3.22.9
+    name: Build and Sign TokoKu APK
     runs-on: ubuntu-latest
-
-    env:
-      APK_NAME: TokoKu-v3.22.9-SIGNED.apk
-      BUILD_TOOLS: 35.0.0
 
     steps:
 
-      # ==========================================
+      # ============================================================
       # 1. CHECKOUT
-      # ==========================================
+      # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==========================================
+      # ============================================================
       # 2. JAVA 17
-      # ==========================================
+      # ============================================================
       - name: Setup Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # ==========================================
+      # ============================================================
       # 3. ANDROID SDK
-      # ==========================================
+      # ============================================================
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools'
+        uses: android-actions/setup-android@v3
 
-      # ==========================================
-      # 4. INSTALL SDK PACKAGES
-      # ==========================================
+      # ============================================================
+      # 4. INSTALL REQUIRED SDK PACKAGES
+      # ============================================================
       - name: Install required Android SDK
         shell: bash
         run: |
           set -e
 
-          echo "Installing Android SDK packages..."
+          yes | sdkmanager --licenses >/dev/null || true
 
           sdkmanager \
+            "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-          echo "SDK installation completed."
-
-          echo "Checking build-tools..."
-
-          test -f "$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          test -f "$ANDROID_HOME/build-tools/35.0.0/zipalign"
-
-          echo "apksigner OK"
-          echo "zipalign OK"
-
-      # ==========================================
-      # 5. SETUP GRADLE
-      # ==========================================
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+      # ============================================================
+      # 5. SETUP GRADLE 8.7
+      # ============================================================
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.7'
 
-      # ==========================================
-      # 6. FIND ANDROID PROJECT
-      # ==========================================
-      - name: Find TokoKu project
-        id: project
+      # ============================================================
+      # 6. FIND TOKOKU ANDROID PROJECT
+      # ============================================================
+      - name: Find TokoKu Android project
         shell: bash
         run: |
           set -e
 
-          echo "Searching for Android project..."
+          echo "=== Repository contents ==="
+          find . -maxdepth 3 -type f | head -200
 
-          PROJECT=""
+          echo "=== Searching for settings.gradle ==="
 
-          while IFS= read -r settings; do
+          PROJECT_DIR=""
 
-            DIR="$(dirname "$settings")"
+          while IFS= read -r file; do
+            dir="$(dirname "$file")"
 
-            if [ -f "$DIR/settings.gradle" ] || \
-               [ -f "$DIR/settings.gradle.kts" ]; then
-
-              PROJECT="$DIR"
+            if [ -f "$dir/app/build.gradle" ] || \
+               [ -f "$dir/app/build.gradle.kts" ]; then
+              PROJECT_DIR="$dir"
               break
-
             fi
-
           done < <(
             find . \
               -type f \
               \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-              -not -path "*/build/*" \
-              | sort
+              -not -path "./.git/*"
           )
 
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: Android project tidak ditemukan."
-
-            echo "Isi repository:"
-            find . -maxdepth 4 -type f | sort | head -300
-
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: TokoKu Android project tidak ditemukan."
+            echo "Project harus mempunyai settings.gradle/settings.gradle.kts dan folder app."
             exit 1
           fi
 
-          PROJECT="${PROJECT#./}"
+          PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
-          echo "Android project ditemukan:"
-          echo "$PROJECT"
+          echo "TokoKu project ditemukan:"
+          echo "$PROJECT_DIR"
 
-          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      # ==========================================
-      # 7. PREPARE GRADLE
-      # ==========================================
+      # ============================================================
+      # 7. CHECK PROJECT STRUCTURE
+      # ============================================================
+      - name: Inspect TokoKu project
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          echo "=== Project ==="
+          pwd
+
+          echo "=== Files ==="
+          find . -maxdepth 2 -type f | sort
+
+          echo "=== Gradle files ==="
+          ls -la
+
+          if [ ! -d "app" ]; then
+            echo "ERROR: folder app tidak ditemukan."
+            exit 1
+          fi
+
+          if [ ! -f "settings.gradle" ] && \
+             [ ! -f "settings.gradle.kts" ]; then
+            echo "ERROR: settings.gradle tidak ditemukan."
+            exit 1
+          fi
+
+      # ============================================================
+      # 8. PREPARE GRADLE
+      #
+      # PENTING:
+      # Tidak menjalankan "gradle clean".
+      # Project TokoKu tidak mempunyai task clean.
+      # ============================================================
       - name: Prepare Gradle
         shell: bash
         run: |
           set -e
 
-          PROJECT="${{ steps.project.outputs.project }}"
-
-          cd "$PROJECT"
+          cd "$PROJECT_DIR"
 
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
             echo "Gradle wrapper ditemukan."
           else
             echo "Gradle wrapper tidak ditemukan."
-            echo "Workflow akan menggunakan Gradle 8.9."
+            echo "Build akan menggunakan Gradle 8.7."
           fi
 
-      # ==========================================
-      # 8. BUILD RELEASE APK
-      # ==========================================
+      # ============================================================
+      # 9. BUILD RELEASE APK
+      # ============================================================
       - name: Build Release APK
         shell: bash
         run: |
           set -e
 
-          PROJECT="${{ steps.project.outputs.project }}"
+          cd "$PROJECT_DIR"
 
-          cd "$PROJECT"
+          echo "=== Gradle tasks ==="
+          gradle tasks --all --no-daemon
 
-          if [ -f "./gradlew" ]; then
+          echo "=== Building release APK ==="
 
-            chmod +x ./gradlew
+          gradle :app:assembleRelease \
+            --no-daemon \
+            --stacktrace
 
-            ./gradlew \
-              clean \
-              assembleRelease \
-              --no-daemon \
-              --stacktrace
-
-          else
-
-            gradle \
-              clean \
-              assembleRelease \
-              --no-daemon \
-              --stacktrace
-
-          fi
-
-      # ==========================================
-      # 9. FIND APK
-      # ==========================================
+      # ============================================================
+      # 10. LOCATE APK
+      # ============================================================
       - name: Locate APK
-        id: apk
         shell: bash
         run: |
           set -e
 
-          PROJECT="${{ steps.project.outputs.project }}"
+          cd "$PROJECT_DIR"
 
-          echo "Searching for release APK..."
+          echo "=== APK files ==="
 
-          APK=$(find "$PROJECT" \
+          find . \
+            -type f \
+            -name "*.apk" \
+            -not -path "./.gradle/*" \
+            -print
+
+          APK="$(find . \
             -type f \
             -path "*/build/outputs/apk/release/*.apk" \
-            | sort \
-            | head -n 1)
+            -not -name "*androidTest*" \
+            | head -1)"
 
           if [ -z "$APK" ]; then
-
             echo "ERROR: Release APK tidak ditemukan."
-
-            echo "Semua APK:"
-            find "$PROJECT" \
-              -type f \
-              -name "*.apk" \
-              | sort
-
             exit 1
-
           fi
+
+          APK="$(cd "$(dirname "$APK")" && pwd)/$(basename "$APK")"
 
           echo "APK ditemukan:"
           echo "$APK"
 
-          mkdir -p "$GITHUB_WORKSPACE/output"
+          echo "UNSIGNED_APK=$APK" >> "$GITHUB_ENV"
 
-          cp "$APK" \
-            "$GITHUB_WORKSPACE/output/unsigned.apk"
+      # ============================================================
+      # 11. FIND BUILD TOOLS
+      # ============================================================
+      - name: Locate Android build tools
+        shell: bash
+        run: |
+          set -e
 
-      # ==========================================
-      # 10. ZIPALIGN
-      # ==========================================
+          BUILD_TOOLS_DIR="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+
+          if [ ! -x "$BUILD_TOOLS_DIR/zipalign" ]; then
+            echo "ERROR: zipalign tidak ditemukan."
+            exit 1
+          fi
+
+          if [ ! -x "$BUILD_TOOLS_DIR/apksigner" ]; then
+            echo "ERROR: apksigner tidak ditemukan."
+            exit 1
+          fi
+
+          echo "BUILD_TOOLS_DIR=$BUILD_TOOLS_DIR" >> "$GITHUB_ENV"
+
+      # ============================================================
+      # 12. DECODE KEYSTORE
+      # ============================================================
+      - name: Decode signing keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ERROR: secret TOKOKU_KEYSTORE_BASE64 kosong."
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
+
+          if [ ! -s "$RUNNER_TEMP/tokoku-release.jks" ]; then
+            echo "ERROR: keystore gagal dibuat."
+            exit 1
+          fi
+
+          echo "Keystore berhasil dibuat."
+
+      # ============================================================
+      # 13. VERIFY KEYSTORE
+      # ============================================================
+      - name: Verify signing keystore
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+        run: |
+          set -e
+
+          keytool \
+            -list \
+            -keystore "$RUNNER_TEMP/tokoku-release.jks" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS"
+
+      # ============================================================
+      # 14. ZIPALIGN
+      # ============================================================
       - name: Align APK
         shell: bash
         run: |
           set -e
 
-          ZIPALIGN="$ANDROID_HOME/build-tools/$BUILD_TOOLS/zipalign"
-
-          "$ZIPALIGN" \
+          "$BUILD_TOOLS_DIR/zipalign" \
             -f \
-            4 \
-            "$GITHUB_WORKSPACE/output/unsigned.apk" \
-            "$GITHUB_WORKSPACE/output/aligned.apk"
+            -v 4 \
+            "$UNSIGNED_APK" \
+            "$RUNNER_TEMP/tokoku-aligned.apk"
 
-          echo "APK alignment berhasil."
-
-      # ==========================================
-      # 11. DECODE KEYSTORE
-      # ==========================================
-      - name: Decode keystore
-        shell: bash
-        env:
-          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
-        run: |
-          set -e
-
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "ERROR: Secret TOKOKU_KEYSTORE_BASE64 kosong."
+          if [ ! -s "$RUNNER_TEMP/tokoku-aligned.apk" ]; then
+            echo "ERROR: APK hasil zipalign tidak ditemukan."
             exit 1
           fi
 
-          echo "$KEYSTORE_B64" | \
-            base64 --decode > \
-            "$RUNNER_TEMP/tokoku-release.jks"
-
-          test -s "$RUNNER_TEMP/tokoku-release.jks"
-
-          echo "Keystore berhasil."
-
-      # ==========================================
-      # 12. CHECK KEY
-      # ==========================================
-      - name: Check signing key
-        shell: bash
-        env:
-          STORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
-        run: |
-          set -e
-
-          if [ -z "$STORE_PASSWORD" ]; then
-            echo "ERROR: TOKOKU_KEYSTORE_PASSWORD kosong."
-            exit 1
-          fi
-
-          if [ -z "$KEY_ALIAS" ]; then
-            echo "ERROR: TOKOKU_KEY_ALIAS kosong."
-            exit 1
-          fi
-
-          keytool \
-            -list \
-            -keystore "$RUNNER_TEMP/tokoku-release.jks" \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" \
-            >/dev/null
-
-          echo "Signing key valid."
-
-      # ==========================================
-      # 13. SIGN APK
-      # ==========================================
+      # ============================================================
+      # 15. SIGN APK
+      # ============================================================
       - name: Sign APK
         shell: bash
         env:
-          STORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
         run: |
           set -e
 
-          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
-
-          "$APKSIGNER" sign \
+          "$BUILD_TOOLS_DIR/apksigner" sign \
             --ks "$RUNNER_TEMP/tokoku-release.jks" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
             --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass "pass:$STORE_PASSWORD" \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --v3-signing-enabled true \
-            --out "$GITHUB_WORKSPACE/output/$APK_NAME" \
-            "$GITHUB_WORKSPACE/output/aligned.apk"
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "$RUNNER_TEMP/TokoKu-v3.22.9-signed.apk" \
+            "$RUNNER_TEMP/tokoku-aligned.apk"
 
-          test -s "$GITHUB_WORKSPACE/output/$APK_NAME"
+          if [ ! -s "$RUNNER_TEMP/TokoKu-v3.22.9-signed.apk" ]; then
+            echo "ERROR: Signed APK tidak berhasil dibuat."
+            exit 1
+          fi
 
-          echo "SIGNED APK berhasil dibuat."
-
-      # ==========================================
-      # 14. VERIFY SIGNATURE
-      # ==========================================
+      # ============================================================
+      # 16. VERIFY APK SIGNATURE
+      # ============================================================
       - name: Verify APK signature
         shell: bash
         run: |
           set -e
 
-          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
-
-          APK="$GITHUB_WORKSPACE/output/$APK_NAME"
-
-          echo "Verifying:"
-          echo "$APK"
-
-          "$APKSIGNER" verify \
+          "$BUILD_TOOLS_DIR/apksigner" verify \
             --verbose \
-            --print-certs \
-            "$APK"
+            "$RUNNER_TEMP/TokoKu-v3.22.9-signed.apk"
 
-          echo
-          echo "======================================"
-          echo "APK SIGNATURE VERIFIED SUCCESSFULLY"
-          echo "======================================"
-
-      # ==========================================
-      # 15. VERIFY ALIGNMENT
-      # ==========================================
-      - name: Verify APK alignment
+      # ============================================================
+      # 17. CHECK APK PACKAGE
+      # ============================================================
+      - name: Check APK package
         shell: bash
         run: |
           set -e
 
-          "$ANDROID_HOME/build-tools/$BUILD_TOOLS/zipalign" \
-            -c \
-            -v \
-            4 \
-            "$GITHUB_WORKSPACE/output/$APK_NAME"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" \
+            dump badging \
+            "$RUNNER_TEMP/TokoKu-v3.22.9-signed.apk" \
+            | head -20
 
-          echo "APK alignment verified."
-
-      # ==========================================
-      # 16. CHECK APK
-      # ==========================================
-      - name: Check APK
+      # ============================================================
+      # 18. FINAL APK
+      # ============================================================
+      - name: Prepare final APK
         shell: bash
         run: |
           set -e
 
-          APK="$GITHUB_WORKSPACE/output/$APK_NAME"
+          mkdir -p "$GITHUB_WORKSPACE/final-apk"
 
-          echo "Final APK:"
-          ls -lh "$APK"
+          cp \
+            "$RUNNER_TEMP/TokoKu-v3.22.9-signed.apk" \
+            "$GITHUB_WORKSPACE/final-apk/TokoKu-v3.22.9-signed.apk"
 
-          "$ANDROID_HOME/build-tools/$BUILD_TOOLS/apkanalyzer" \
-            manifest application-id \
-            "$APK"
+          ls -lh "$GITHUB_WORKSPACE/final-apk/TokoKu-v3.22.9-signed.apk"
 
-      # ==========================================
-      # 17. UPLOAD FINAL APK
-      # ==========================================
+      # ============================================================
+      # 19. UPLOAD SIGNED APK
+      # ============================================================
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.9-SIGNED
-          path: output/TokoKu-v3.22.9-SIGNED.apk
+          name: TokoKu-v3.22.9-SIGNED-APK
+          path: final-apk/TokoKu-v3.22.9-signed.apk
           if-no-files-found: error
-          retention-days: 14
-
-      # ==========================================
-      # 18. CLEANUP
-      # ==========================================
-      - name: Cleanup
-        if: always()
-        shell: bash
-        run: |
-          rm -f "$RUNNER_TEMP/tokoku-release.jks"
+          retention-days: 30
