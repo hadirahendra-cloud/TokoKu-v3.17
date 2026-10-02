@@ -31,21 +31,23 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Find TokoKu ZIP
+     - name: Find TokoKu Printer ZIP
         shell: bash
         run: |
-          echo "=== MENCARI ZIP TOKOKU ==="
+          echo "=== MENCARI ZIP TOKOKU PRINTER ==="
 
           ZIP_FILE=$(find . -type f \
-            \( -iname "*.zip" -o -iname "*.ZIP" \) \
+            -iname "*Printer*Bluetooth*Source*FIXED*.zip" \
             | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP TokoKu tidak ditemukan."
+            echo "ERROR: ZIP PRINTER BLUETOOTH TIDAK DITEMUKAN"
+            echo "=== DAFTAR ZIP ==="
+            find . -type f -iname "*.zip" -print
             exit 1
           fi
 
-          echo "ZIP ditemukan:"
+          echo "ZIP YANG AKAN DIGUNAKAN:"
           echo "$ZIP_FILE"
 
           echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
