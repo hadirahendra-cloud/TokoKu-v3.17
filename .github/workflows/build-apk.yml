@@ -1,13 +1,10 @@
-name: Build TokoKu APK
+name: Diagnosis TokoKu APK
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
-  build:
+  diagnose:
     runs-on: ubuntu-latest
 
     steps:
@@ -31,7 +28,7 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Find TokoKu Printer ZIP
+      - name: Find TokoKu ZIP
         shell: bash
         run: |
           echo "=== MENCARI ZIP TOKOKU ==="
@@ -42,12 +39,11 @@ jobs:
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: ZIP TOKOKU TIDAK DITEMUKAN"
-            echo "=== DAFTAR ZIP ==="
             find . -type f -iname "*.zip" -print
             exit 1
           fi
 
-          echo "ZIP DITEMUKAN:"
+          echo "ZIP:"
           echo "$ZIP_FILE"
 
           echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
@@ -55,8 +51,6 @@ jobs:
       - name: Extract TokoKu
         shell: bash
         run: |
-          echo "=== EXTRACT TOKOKU ==="
-
           rm -rf tokoku-project
           mkdir -p tokoku-project
 
@@ -65,11 +59,9 @@ jobs:
           echo "=== HASIL EXTRACT ==="
           find tokoku-project -maxdepth 4 -type f | head -200
 
-      - name: Find TokoKu Android project
+      - name: Find Android Project
         shell: bash
         run: |
-          echo "=== MENCARI PROJECT ANDROID ==="
-
           PROJECT_DIR=""
 
           FOUND=$(find tokoku-project \
@@ -115,36 +107,23 @@ jobs:
           fi
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: PROJECT ANDROID TOKOKU TIDAK DITEMUKAN"
+            echo "ERROR: PROJECT ANDROID TIDAK DITEMUKAN"
             exit 1
           fi
 
-          echo "PROJECT TOKOKU:"
-          echo "$PROJECT_DIR"
-
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Prepare Gradle
-        shell: bash
-        run: |
-          cd "$PROJECT_DIR"
-
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew --version
-          else
-            gradle --version
-          fi
+          echo "=== PROJECT ==="
+          echo "$PROJECT_DIR"
 
       - name: Build Debug APK
         shell: bash
         run: |
           cd "$PROJECT_DIR"
 
-          echo "=== BUILD TOKOKU DEBUG APK ==="
-
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
+
             ./gradlew clean assembleDebug \
               --stacktrace \
               --no-daemon
@@ -157,64 +136,34 @@ jobs:
       - name: Locate APK
         shell: bash
         run: |
-          echo "=== MENCARI APK ==="
-
           APK=$(find "$PROJECT_DIR" \
             -type f \
-            \( -name "*debug*.apk" -o -name "*.apk" \) \
+            -name "*debug*.apk" \
             | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan."
+            echo "ERROR: APK DEBUG TIDAK DITEMUKAN"
             exit 1
           fi
 
-          echo "APK DITEMUKAN:"
-          echo "$APK"
+          echo "APK=$APK" >> "$GITHUB_ENV"
 
           cp "$APK" \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
+            "$GITHUB_WORKSPACE/TokoKu-diagnosis-unsigned.apk"
 
-      - name: Test Key Password
+          echo "=== APK ==="
+          ls -lh "$APK"
+
+      - name: APK Information Before Signing
         shell: bash
-        env:
-          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
         run: |
-          echo "=== TES PASSWORD KEY ==="
-          echo "Password KEY akan dicoba sama dengan password KEYSTORE."
+          echo "=========================================="
+          echo " INFORMASI APK SEBELUM SIGNING"
+          echo "=========================================="
 
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "ERROR: TOKOKU_KEYSTORE_BASE64 belum tersedia."
-            exit 1
-          fi
-
-          if [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "ERROR: TOKOKU_KEYSTORE_PASSWORD belum tersedia."
-            exit 1
-          fi
-
-          if [ -z "$KEY_ALIAS" ]; then
-            echo "ERROR: TOKOKU_KEY_ALIAS belum tersedia."
-            exit 1
-          fi
-
-          echo "$KEYSTORE_B64" | base64 --decode \
-            > "$RUNNER_TEMP/tokoku.jks"
-
-          keytool -certreq \
-            -alias "$KEY_ALIAS" \
-            -keystore "$RUNNER_TEMP/tokoku.jks" \
-            -storepass "$KEYSTORE_PASSWORD" \
-            -keypass "$KEYSTORE_PASSWORD" \
-            -file "$RUNNER_TEMP/test.csr"
-
-          echo "======================================"
-          echo "PASSWORD KEY = PASSWORD KEYSTORE"
-          echo "TES BERHASIL."
-          echo "Kita lanjut signing APK."
-          echo "======================================"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            "$GITHUB_WORKSPACE/TokoKu-diagnosis-unsigned.apk" \
+            | grep -E "package:|versionCode|versionName"
 
       - name: Sign APK
         shell: bash
@@ -223,7 +172,24 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
         run: |
-          echo "=== SIGN APK TOKOKU ==="
+          echo "=========================================="
+          echo " SIGNING APK"
+          echo "=========================================="
+
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "ERROR: KEYSTORE BASE64 TIDAK ADA"
+            exit 1
+          fi
+
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "ERROR: KEYSTORE PASSWORD TIDAK ADA"
+            exit 1
+          fi
+
+          if [ -z "$KEY_ALIAS" ]; then
+            echo "ERROR: KEY ALIAS TIDAK ADA"
+            exit 1
+          fi
 
           echo "$KEYSTORE_B64" | base64 --decode \
             > "$RUNNER_TEMP/tokoku.jks"
@@ -233,30 +199,48 @@ jobs:
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass "pass:$KEYSTORE_PASSWORD" \
             --key-pass "pass:$KEYSTORE_PASSWORD" \
-            --out "$RUNNER_TEMP/tokoku-signed.apk" \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
+            --out "$GITHUB_WORKSPACE/TokoKu-DIAGNOSIS-SIGNED.apk" \
+            "$GITHUB_WORKSPACE/TokoKu-diagnosis-unsigned.apk"
 
-          mv "$RUNNER_TEMP/tokoku-signed.apk" \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
-
-          echo "=== SIGNING BERHASIL ==="
-
-      - name: Verify APK
+      - name: Verify Signature
         shell: bash
         run: |
-          echo "=== VERIFY APK ==="
-
-          ls -lh \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
+          echo "=========================================="
+          echo " INFORMASI SIGNATURE"
+          echo "=========================================="
 
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
-            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-debug.apk"
+            --verbose \
+            --print-certs \
+            "$GITHUB_WORKSPACE/TokoKu-DIAGNOSIS-SIGNED.apk"
 
-          echo "=== APK VALID ==="
+      - name: Final APK Information
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo " INFORMASI FINAL TOKOKU"
+          echo "=========================================="
 
-      - name: Upload APK
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            "$GITHUB_WORKSPACE/TokoKu-DIAGNOSIS-SIGNED.apk" \
+            | grep -E "package:|versionCode|versionName"
+
+          echo ""
+          echo "=========================================="
+          echo " FILE APK"
+          echo "=========================================="
+
+          ls -lh \
+            "$GITHUB_WORKSPACE/TokoKu-DIAGNOSIS-SIGNED.apk"
+
+          echo ""
+          echo "=========================================="
+          echo " DIAGNOSIS SELESAI"
+          echo "=========================================="
+
+      - name: Upload Diagnosis APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.8-SIGNED
-          path: TokoKu-v3.22.8-debug.apk
+          name: TokoKu-DIAGNOSIS
+          path: TokoKu-DIAGNOSIS-SIGNED.apk
           if-no-files-found: error
