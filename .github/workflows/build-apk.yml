@@ -129,7 +129,6 @@ jobs:
             --no-daemon \
             --stacktrace
 
-
       - name: Find APK
         run: |
           echo "=== APK yang dihasilkan ==="
