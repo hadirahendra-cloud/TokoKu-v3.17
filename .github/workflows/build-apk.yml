@@ -76,12 +76,11 @@ jobs:
           echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
           test -s "$RUNNER_TEMP/tokoku-release.jks"
 
-      - name: Build signed release APK
+            - name: Build signed release APK
         env:
           TOKOKU_KEYSTORE_FILE: ${{ runner.temp }}/tokoku-release.jks
           TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
-          TOKOKU_KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
         run: |
           set -e
           test -n "$TOKOKU_KEYSTORE_PASSWORD"
