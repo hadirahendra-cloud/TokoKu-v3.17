@@ -238,12 +238,45 @@ jobs:
 
           ls -lh "$APK"
 
+            # =========================================================
+      # 15. CARI DAN UPLOAD APK FINAL
       # =========================================================
-      # 15. UPLOAD APK
-      # =========================================================
+      - name: Cari APK FINAL
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo " MENCARI APK FINAL"
+          echo "=========================================="
+
+          find "$GITHUB_WORKSPACE" \
+            -type f \
+            -name "*.apk" \
+            -print
+
+          APK_FOUND=$(find "$GITHUB_WORKSPACE" \
+            -type f \
+            -name "TokoKu-v3.22.8-FINAL.apk" \
+            -print -quit)
+
+          if [ -z "$APK_FOUND" ]; then
+            echo "ERROR: APK FINAL tidak ditemukan!"
+            exit 1
+          fi
+
+          echo "APK ditemukan:"
+          echo "$APK_FOUND"
+
+          ls -lh "$APK_FOUND"
+
+          cp "$APK_FOUND" \
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL.apk"
+
       - name: Upload FINAL APK
         uses: actions/upload-artifact@v4
         with:
           name: TokoKu-v3.22.8-FINAL
-          path: TokoKu-v3.22.8-FINAL.apk
+          path: ${{ github.workspace }}/TokoKu-v3.22.8-FINAL.apk
           if-no-files-found: error
+          retention-days: 30
