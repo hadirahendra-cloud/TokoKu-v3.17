@@ -1,14 +1,15 @@
-name: Build TokoKu v3.22.9 Signed APK
+name: Build TokoKu FINAL v3.22.8
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      ZIP_FILE: ./TokoKu_v3.22.8_Printer_Bluetooth_Source_FIXED.zip
+      PROJECT_DIR: TokoKu-project/TokoKu_v3_Android_Project
 
     steps:
 
@@ -17,7 +18,6 @@ jobs:
       # =========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
-
 
       # =========================================================
       # 2. JAVA 17
@@ -28,202 +28,222 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-
       # =========================================================
       # 3. ANDROID SDK
       # =========================================================
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-          accept-android-sdk-licenses: true
-
+        uses: android-actions/setup-android@v3
 
       # =========================================================
       # 4. GRADLE
       # =========================================================
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-
 
       # =========================================================
-      # 5. CARI ZIP TOKOKU
+      # 5. EXTRACT PROJECT
       # =========================================================
-      - name: Find TokoKu ZIP
+      - name: Extract TokoKu source
         shell: bash
         run: |
+          set -e
 
-          echo "=========================================="
-          echo " MENCARI ZIP TOKOKU"
-          echo "=========================================="
+          rm -rf TokoKu-project
 
-          ZIP_FILE=$(find . -type f \
-            -iname "*Printer*Bluetooth*Source*FIXED*.zip" \
-            | head -n 1)
+          mkdir -p TokoKu-project
 
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP TOKOKU TIDAK DITEMUKAN"
-            echo ""
-            echo "Daftar ZIP:"
-            find . -type f -iname "*.zip" -print
-            exit 1
-          fi
+          unzip -q "$ZIP_FILE" -d TokoKu-project
 
-          echo "ZIP:"
-          echo "$ZIP_FILE"
+          echo "Isi project:"
+          find TokoKu-project -maxdepth 3 -type f | head -100
 
-          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
-
+          test -d "$PROJECT_DIR"
 
       # =========================================================
-      # 6. EXTRACT
+      # 6. FORCE VERSION CODE 31
       # =========================================================
-      - name: Extract TokoKu
+      - name: Set versionCode 31
         shell: bash
         run: |
-
-          echo "=========================================="
-          echo " EXTRACT TOKOKU"
-          echo "=========================================="
-
-          rm -rf tokoku-project
-          mkdir -p tokoku-project
-
-          unzip -q "$ZIP_FILE" -d tokoku-project
-
-          echo "Extract selesai."
-
-
-      # =========================================================
-      # 7. CARI PROJECT ANDROID
-      # =========================================================
-      - name: Find Android Project
-        shell: bash
-        run: |
-
-          echo "=========================================="
-          echo " MENCARI PROJECT ANDROID"
-          echo "=========================================="
-
-          PROJECT_DIR=""
-
-          FOUND=$(find tokoku-project \
-            -type f \
-            -name "settings.gradle.kts" \
-            | head -n 1)
-
-          if [ -n "$FOUND" ]; then
-            PROJECT_DIR=$(dirname "$FOUND")
-          fi
-
-          if [ -z "$PROJECT_DIR" ]; then
-            FOUND=$(find tokoku-project \
-              -type f \
-              -name "settings.gradle" \
-              | head -n 1)
-
-            if [ -n "$FOUND" ]; then
-              PROJECT_DIR=$(dirname "$FOUND")
-            fi
-          fi
-
-          if [ -z "$PROJECT_DIR" ]; then
-            FOUND=$(find tokoku-project \
-              -type f \
-              -path "*/app/build.gradle" \
-              | head -n 1)
-
-            if [ -n "$FOUND" ]; then
-              PROJECT_DIR=$(dirname "$(dirname "$FOUND")")
-            fi
-          fi
-
-          if [ -z "$PROJECT_DIR" ]; then
-            FOUND=$(find tokoku-project \
-              -type f \
-              -path "*/app/build.gradle.kts" \
-              | head -n 1)
-
-            if [ -n "$FOUND" ]; then
-              PROJECT_DIR=$(dirname "$(dirname "$FOUND")")
-            fi
-          fi
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: PROJECT ANDROID TIDAK DITEMUKAN"
-            exit 1
-          fi
-
-          echo "PROJECT DITEMUKAN:"
-          echo "$PROJECT_DIR"
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-
-      # =========================================================
-      # 8. SET VERSION 3.22.9 / VERSION CODE 31
-      # =========================================================
-      - name: Set TokoKu Version 3.22.9
-        shell: bash
-        run: |
-
-          echo "=========================================="
-          echo " SET VERSION TOKOKU"
-          echo "=========================================="
+          set -e
 
           BUILD_FILE="$PROJECT_DIR/app/build.gradle"
 
-          if [ ! -f "$BUILD_FILE" ]; then
-            BUILD_FILE="$PROJECT_DIR/app/build.gradle.kts"
-          fi
+          echo "Mencari versionCode..."
 
-          if [ ! -f "$BUILD_FILE" ]; then
-            echo "ERROR: build.gradle tidak ditemukan"
-            exit 1
-          fi
+          grep -n "versionCode" "$BUILD_FILE" || true
 
-          echo "BUILD FILE:"
-          echo "$BUILD_FILE"
+          sed -i -E 's/versionCode[[:space:]]+[0-9]+/versionCode 31/' "$BUILD_FILE"
 
-          python3 - "$BUILD_FILE" <<'PY'
-          import sys
-          import re
+          echo "Setelah perubahan:"
+          grep -n "versionCode" "$BUILD_FILE"
 
-          path = sys.argv[1]
-
-          with open(path, "r", encoding="utf-8") as f:
-              text = f.read()
-
-          # versionCode
-          text = re.sub(
-              r'(\bversionCode\s*[= ]\s*)\d+',
-              r'\g<1>31',
-              text,
-              count=1
-          )
-
-          # versionName
-          text = re.sub(
-              r'(\bversionName\s*[= ]\s*)["\'][^"\']*["\']',
-              r'\g<1>"3.22.9"',
-              text,
-              count=1
-          )
-
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(text)
-
-          print("versionCode -> 31")
-          print("versionName -> 3.22.9")
-          PY
-
-          echo ""
-          echo "=== CEK VERSION ==="
-
-          grep -nE "versionCode|versionName" "$BUILD_FILE" || true
-
+          grep -q "versionCode 31" "$BUILD_FILE"
 
       # =========================================================
-      # 9. PREPARE
+      # 7. BUILD APK
+      # =========================================================
+      - name: Build APK
+        shell: bash
+        working-directory: TokoKu-project/TokoKu_v3_Android_Project
+        run: |
+          set -e
+
+          chmod +x gradlew
+
+          ./gradlew clean assembleDebug --no-daemon
+
+      # =========================================================
+      # 8. LOCATE APK
+      # =========================================================
+      - name: Locate APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+
+          test -f "$APK"
+
+          cp "$APK" "$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL-UNSIGNED.apk"
+
+          echo "APK ditemukan:"
+          ls -lh "$APK"
+
+      # =========================================================
+      # 9. APK INFORMATION BEFORE SIGNING
+      # =========================================================
+      - name: APK information before signing
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo " INFORMASI APK SEBELUM SIGNING"
+          echo "=========================================="
+
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL-UNSIGNED.apk" \
+            | grep -E "package:|versionCode|versionName"
+
+      # =========================================================
+      # 10. DECODE KEYSTORE
+      # =========================================================
+      - name: Decode TokoKu Keystore
+        shell: bash
+        env:
+          TOKOKU_KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+          TOKOKU_KEYSTORE_FILENAME: ${{ secrets.TOKOKU_KEYSTORE_FILENAME }}
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo " DECODE KEYSTORE"
+          echo "=========================================="
+
+          test -n "$TOKOKU_KEYSTORE_BASE64"
+          test -n "$TOKOKU_KEYSTORE_FILENAME"
+
+          echo "$TOKOKU_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/$TOKOKU_KEYSTORE_FILENAME"
+
+          test -s "$RUNNER_TEMP/$TOKOKU_KEYSTORE_FILENAME"
+
+          echo "Keystore berhasil dibuat:"
+          ls -lh "$RUNNER_TEMP/$TOKOKU_KEYSTORE_FILENAME"
+
+      # =========================================================
+      # 11. SIGN APK
+      # =========================================================
+      - name: Sign APK
+        shell: bash
+        env:
+          TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          TOKOKU_KEYSTORE_FILENAME: ${{ secrets.TOKOKU_KEYSTORE_FILENAME }}
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo " SIGN APK TOKOKU"
+          echo "=========================================="
+
+          test -n "$TOKOKU_KEYSTORE_PASSWORD"
+          test -n "$TOKOKU_KEY_ALIAS"
+
+          KEYSTORE="$RUNNER_TEMP/$TOKOKU_KEYSTORE_FILENAME"
+          INPUT="$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL-UNSIGNED.apk"
+          OUTPUT="$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL.apk"
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$KEYSTORE" \
+            --ks-pass env:TOKOKU_KEYSTORE_PASSWORD \
+            --ks-key-alias "$TOKOKU_KEY_ALIAS" \
+            --key-pass env:TOKOKU_KEYSTORE_PASSWORD \
+            --out "$OUTPUT" \
+            "$INPUT"
+
+          test -f "$OUTPUT"
+
+          echo "APK signed:"
+          ls -lh "$OUTPUT"
+
+      # =========================================================
+      # 12. VERIFY SIGNATURE
+      # =========================================================
+      - name: Verify APK signature
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo " VERIFIKASI SIGNATURE"
+          echo "=========================================="
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
+            --verbose \
+            --print-certs \
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL.apk"
+
+      # =========================================================
+      # 13. VERIFY FINAL APK INFO
+      # =========================================================
+      - name: Verify final APK information
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo " APK FINAL"
+          echo "=========================================="
+
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            "$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL.apk" \
+            | grep -E "package:|versionCode|versionName"
+
+      # =========================================================
+      # 14. FILE CHECK
+      # =========================================================
+      - name: Check final APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="$GITHUB_WORKSPACE/TokoKu-v3.22.8-FINAL.apk"
+
+          test -f "$APK"
+
+          echo "=========================================="
+          echo " APK SIAP DIINSTALL"
+          echo "=========================================="
+
+          ls -lh "$APK"
+
+      # =========================================================
+      # 15. UPLOAD APK
+      # =========================================================
+      - name: Upload FINAL APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.8-FINAL
+          path: TokoKu-v3.22.8-FINAL.apk
+          if-no-files-found: error
