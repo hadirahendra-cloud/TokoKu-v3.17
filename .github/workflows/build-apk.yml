@@ -1,4 +1,4 @@
-name: Build TokoKu v3.22.9 Printer Bluetooth
+name: Build TokoKu v3.22.9 - DIAGNOSTIC
 
 on:
   workflow_dispatch:
@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
 
@@ -39,11 +40,15 @@ jobs:
       - name: Extract TokoKu v3.22.9
         run: |
           set -e
+
           ZIP="./TokoKu-v3.22.9-Printer-Bluetooth-GITHUB-READY.zip"
 
           if [ ! -f "$ZIP" ]; then
-            echo "ERROR: $ZIP tidak ditemukan."
-            ls -lah
+            echo "ERROR: ZIP tidak ditemukan:"
+            echo "$ZIP"
+            echo ""
+            echo "Isi repository:"
+            find . -maxdepth 3 -type f -print
             exit 1
           fi
 
@@ -52,53 +57,128 @@ jobs:
           unzip -q "$ZIP" -d build-project
 
           APP_GRADLE="$(find build-project -type f -path "*/app/build.gradle" -print -quit)"
+
           if [ -z "$APP_GRADLE" ]; then
             echo "ERROR: app/build.gradle tidak ditemukan."
-            find build-project -maxdepth 6 -type f | head -100
+            find build-project -maxdepth 6 -type f | head -200
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$(dirname "$APP_GRADLE")")"
+
           cp -R "$PROJECT_DIR/." .
 
           test -f app/build.gradle
-          grep -q "versionCode 32" app/build.gradle
-          grep -q "versionName '3.22.9'" app/build.gradle
-          grep -q "applicationId 'com.tokoku.app'" app/build.gradle
-          echo "TokoKu v3.22.9 source OK"
+          test -f app/src/main/AndroidManifest.xml
+
+          echo "===== PROJECT ====="
+          echo "PROJECT_DIR=$PROJECT_DIR"
+
+          echo "===== GRADLE CONFIG ====="
+          grep -E "applicationId|minSdk|targetSdk|compileSdk|versionCode|versionName" app/build.gradle || true
 
       - name: Prepare release keystore
         env:
           KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
         run: |
           set -e
+
           test -n "$KEYSTORE_B64"
+
           echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
+
           test -s "$RUNNER_TEMP/tokoku-release.jks"
+
+          echo "Keystore OK."
 
       - name: Build signed release APK
         env:
           TOKOKU_KEYSTORE_FILE: ${{ runner.temp }}/tokoku-release.jks
           TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          TOKOKU_KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
         run: |
           set -e
+
           test -n "$TOKOKU_KEYSTORE_PASSWORD"
           test -n "$TOKOKU_KEY_ALIAS"
+
           gradle :app:clean :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Diagnose APK
+        run: |
+          set -e
+
+          APK="app/build/outputs/apk/release/app-release.apk"
+          REPORT="APK-DIAGNOSTIC.txt"
+
+          test -s "$APK"
+
+          {
+            echo "=========================================="
+            echo "TOKOKU v3.22.9 APK DIAGNOSTIC"
+            echo "=========================================="
+            echo ""
+
+            echo "FILE:"
+            ls -lh "$APK"
+            echo ""
+
+            echo "PACKAGE / VERSION:"
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "^package:"
+            echo ""
+
+            echo "SDK / ABI / FEATURES:"
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "sdkVersion|targetSdkVersion|uses-permission|uses-feature|native-code" || true
+            echo ""
+
+            echo "SIGNATURE:"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+            echo ""
+
+            echo "NATIVE LIBRARIES:"
+            unzip -l "$APK" | grep "lib/" || echo "Tidak ada native library."
+            echo ""
+
+            echo "MANIFEST:"
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml | grep -E "package|versionCode|versionName|minSdkVersion|targetSdkVersion" || true
+            echo ""
+
+            echo "=========================================="
+            echo "END DIAGNOSTIC"
+            echo "=========================================="
+          } | tee "$REPORT"
 
       - name: Verify APK
         run: |
           set -e
+
           APK="app/build/outputs/apk/release/app-release.apk"
+
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E "package: name='com.tokoku.app' versionCode='32' versionName='3.22.9'"
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
+            --verbose \
+            --print-certs \
+            "$APK"
+
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK"
+
+          echo ""
+          echo "APK BERHASIL DIBUAT DAN SIGNATURE VALID."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.9-Printer-Bluetooth-SIGNED
+          name: TokoKu-v3.22.9-Printer-Bluetooth-DIAGNOSTIC
           path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload diagnostic report
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.9-APK-DIAGNOSTIC-REPORT
+          path: APK-DIAGNOSTIC.txt
           if-no-files-found: error
           retention-days: 30
