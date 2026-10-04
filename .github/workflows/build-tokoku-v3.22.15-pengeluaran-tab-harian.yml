@@ -365,7 +365,7 @@ jobs:
           BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
           echo "$BADGING"
 
-          echo "$BADGING" | grep -E "versionCode='39' versionName='3.22.15'"
+          echo "$BADGING" | grep -E "versionCode='40' versionName='3.22.15'"
 
           mkdir -p output
           cp "$APK" "output/TokoKu-v3.22.15-Jazakumullah-RangMudoJr.apk"
