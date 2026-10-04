@@ -96,7 +96,7 @@ jobs:
           TOKOKU_KEYSTORE_FILE: ${{ runner.temp }}/tokoku-release.jks
           TOKOKU_KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
           TOKOKU_KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
-          TOKOKU_KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
+          TOKOKU_KEY_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
         run: |
           set -e
 
