@@ -1,0 +1,187 @@
+name: Build TokoKu v3.22.13 - FIX Footer Signed
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Setup Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Extract TokoKu 3.22.9 source
+        run: |
+          set -e
+          ZIP="$(find . -type f -name 'TokoKu-v3.22.9-Printer-Bluetooth-GITHUB-READY.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            ZIP="$(find . -type f -name '*.zip' -print -quit)"
+          fi
+          test -n "$ZIP"
+
+          rm -rf build-project
+          mkdir build-project
+          unzip -q "$ZIP" -d build-project
+
+          APP_GRADLE="$(find build-project -type f -path '*/app/build.gradle' -print -quit)"
+          test -n "$APP_GRADLE"
+
+          PROJECT_DIR="$(dirname "$(dirname "$APP_GRADLE")")"
+          cp -R "$PROJECT_DIR/." .
+
+          test -f app/build.gradle
+          test -f app/src/main/assets/index.html
+
+      - name: Change receipt footer
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("app/src/main")
+          old = "Terima kasih telah berbelanja di TokoKu"
+          new = "Jazakumullah Khairon telah berbelanja di Toko RangMudo Jr"
+
+          found = False
+          changed = []
+
+          for p in root.rglob("*"):
+              if not p.is_file():
+                  continue
+              if p.suffix.lower() not in {".html",".htm",".js",".jsx",".ts",".tsx",".kt",".java",".xml",".json",".txt"}:
+                  continue
+              try:
+                  s = p.read_text(encoding="utf-8")
+              except Exception:
+                  continue
+
+              if old in s:
+                  p.write_text(s.replace(old, new), encoding="utf-8")
+                  found = True
+                  changed.append(str(p))
+
+          print("Changed:", changed)
+
+          if not found:
+              raise SystemExit("STOP: teks footer lama tidak ditemukan.")
+
+          hits = []
+          for p in root.rglob("*"):
+              if p.is_file():
+                  try:
+                      if new in p.read_text(encoding="utf-8", errors="ignore"):
+                          hits.append(str(p))
+                  except Exception:
+                      pass
+
+          if not hits:
+              raise SystemExit("STOP: teks footer baru tidak ditemukan.")
+
+          print("Footer verified in:", hits)
+          PY
+
+      - name: Set version 3.22.13
+        run: |
+          set -e
+          sed -i -E "s/versionCode[[:space:]]+[0-9]+/versionCode 37/" app/build.gradle
+          sed -i -E "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '3.22.13'/" app/build.gradle
+
+          grep -q "versionCode 37" app/build.gradle
+          grep -q "versionName '3.22.13'" app/build.gradle
+
+          echo "===== APP VERSION ====="
+          grep -nE "applicationId|versionCode|versionName" app/build.gradle
+
+      - name: Build unsigned DEBUG APK
+        run: |
+          set -e
+          gradle :app:clean :app:assembleDebug --no-daemon --stacktrace
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          echo "Unsigned APK: $APK"
+
+      - name: Prepare release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          test -n "$KEYSTORE_B64"
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
+          test -s "$RUNNER_TEMP/tokoku-release.jks"
+
+      - name: Sign APK with existing TokoKu release key
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
+        run: |
+          set -e
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          SIGNED="app/build/outputs/apk/debug/TokoKu-v3.22.13-Jazakumullah-RangMudoJr.apk"
+
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/tokoku-release.jks" \
+            --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out "$SIGNED" \
+            "$APK"
+
+          test -s "$SIGNED"
+
+      - name: Verify final APK
+        run: |
+          set -e
+
+          APK="app/build/outputs/apk/debug/TokoKu-v3.22.13-Jazakumullah-RangMudoJr.apk"
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+
+          BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+          echo "$BADGING"
+
+          echo "$BADGING" | grep -E "versionCode='37' versionName='3.22.13'"
+
+          mkdir -p output
+          cp "$APK" "output/TokoKu-v3.22.13-Jazakumullah-RangMudoJr.apk"
+
+          echo "FINAL APK READY:"
+          ls -lh output/TokoKu-v3.22.13-Jazakumullah-RangMudoJr.apk
+
+      - name: Upload FINAL APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.13-Jazakumullah-RangMudoJr
+          path: output/TokoKu-v3.22.13-Jazakumullah-RangMudoJr.apk
+          if-no-files-found: error
+          retention-days: 30
