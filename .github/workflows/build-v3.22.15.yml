@@ -557,10 +557,7 @@ jobs:
                   "STOP: </body> tidak ditemukan."
               )
 
-          s =
-              s[:pos] +
-              patch +
-              s[pos:]
+          s = s[:pos] + patch + s[pos:]
 
           target.write_text(
               s,
