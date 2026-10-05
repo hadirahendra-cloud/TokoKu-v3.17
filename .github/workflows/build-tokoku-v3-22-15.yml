@@ -8,7 +8,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -19,173 +18,106 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: false
-
-      - name: Find TokoKu ZIP
-        shell: bash
         run: |
-          echo "=== MENCARI ZIP TOKOKU ==="
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
-          ZIP=$(find . -type f -iname '*.zip' \
-            -not -path './.git/*' \
-            | head -n 1)
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Find ZIP
+        run: |
+          ZIP=$(find . -type f -name "*.zip" -not -path "./.git/*" | head -n 1)
 
           if [ -z "$ZIP" ]; then
-            echo "ERROR: ZIP TokoKu tidak ditemukan."
-            echo "Isi repository:"
-            find . -maxdepth 4 -type f | sort
+            echo "ERROR: ZIP tidak ditemukan"
             exit 1
           fi
 
-          echo "ZIP ditemukan:"
-          echo "$ZIP"
-
+          echo "ZIP ditemukan: $ZIP"
           echo "TOKOKU_ZIP=$ZIP" >> "$GITHUB_ENV"
 
-      - name: Extract TokoKu source
-        shell: bash
+      - name: Extract ZIP
         run: |
-          echo "=== EXTRACT SOURCE ==="
-
           rm -rf tokoku-source
-          mkdir -p tokoku-source
-
+          mkdir tokoku-source
           unzip -q "$TOKOKU_ZIP" -d tokoku-source
 
-          echo "=== HASIL EXTRACT ==="
-          find tokoku-source -maxdepth 5 -type f | sort | head -200
+          echo "Isi source:"
+          find tokoku-source -maxdepth 5 -type f | head -100
 
-      - name: Find Android project
-        shell: bash
+      - name: Locate Android Project
         run: |
-          echo "=== MENCARI PROJECT ANDROID ==="
-
           PROJECT=""
 
-          SETTINGS_FILE=$(find tokoku-source -type f \
-            -name "settings.gradle" -o -name "settings.gradle.kts" \
-            -print -quit)
+          while IFS= read -r file; do
+            case "$file" in
+              */settings.gradle|*/settings.gradle.kts)
+                PROJECT="${file%/*}"
+                break
+                ;;
+            esac
+          done < <(find tokoku-source -type f)
 
-          if [ -n "$SETTINGS_FILE" ]; then
-            PROJECT=$(dirname "$SETTINGS_FILE")
+          if [ -z "$PROJECT" ]; then
+            while IFS= read -r file; do
+              case "$file" in
+                */app/build.gradle|*/app/build.gradle.kts)
+                  PROJECT="${file%/app/"${file##*/}"}"
+                  break
+                  ;;
+              esac
+            done < <(find tokoku-source -type f)
           fi
 
           if [ -z "$PROJECT" ]; then
-            BUILD_FILE=$(find tokoku-source -type f \
-              -path "*/app/build.gradle" -o -path "*/app/build.gradle.kts" \
-              -print -quit)
-
-            if [ -n "$BUILD_FILE" ]; then
-              PROJECT=$(dirname "$(dirname "$BUILD_FILE")")
-            fi
-          fi
-
-          if [ -z "$PROJECT" ]; then
-            echo "ERROR: Project Android tidak ditemukan."
-
-            echo "=== DAFTAR FILE ==="
-            find tokoku-source -maxdepth 8 -type f | sort
-
+            echo "ERROR: Folder project Android tidak ditemukan"
+            find tokoku-source -type f | sort
             exit 1
           fi
 
-          echo "PROJECT DITEMUKAN:"
-          echo "$PROJECT"
-
+          echo "PROJECT_DIR=$PROJECT"
           echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
 
       - name: Install Gradle 8.7
-        shell: bash
         run: |
-          echo "=== INSTALL GRADLE 8.7 ==="
-
-          wget -q \
-            https://services.gradle.org/distributions/gradle-8.7-bin.zip \
-            -O gradle-8.7-bin.zip
-
-          rm -rf "$HOME/gradle-8.7"
-
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip
           unzip -q gradle-8.7-bin.zip -d "$HOME"
-
           echo "$HOME/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-          echo "Gradle:"
-          "$HOME/gradle-8.7/bin/gradle" --version
+          gradle --version
 
-      - name: Prepare Gradle
+      - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
         run: |
-          echo "=== PREPARE GRADLE ==="
-
-          if [ -f "./gradlew" ]; then
-            echo "gradlew ditemukan."
-            chmod +x ./gradlew
-            ./gradlew --version
-          else
-            echo "gradlew TIDAK ditemukan."
-            echo "Akan menggunakan Gradle 8.7 langsung."
-            gradle --version
-          fi
-
-      - name: Build Debug APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        shell: bash
-        run: |
-          echo "=== BUILD APK ==="
-
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew clean assembleDebug --no-daemon --stacktrace
+            ./gradlew clean assembleDebug --no-daemon
           else
-            gradle clean assembleDebug --no-daemon --stacktrace
+            gradle clean assembleDebug --no-daemon
           fi
 
-      - name: Find APK
-        shell: bash
+      - name: Collect APK
         run: |
-          echo "=== MENCARI APK ==="
-
-          APK=$(find "$PROJECT_DIR" \
-            -type f \
-            -name "*.apk" \
-            -path "*/build/outputs/apk/*" \
-            | head -n 1)
+          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan."
-
-            echo "=== FILE APK YANG ADA ==="
-            find "$PROJECT_DIR" -type f -name "*.apk" | sort || true
-
-            echo "=== BUILD OUTPUT ==="
-            find "$PROJECT_DIR" -type d -path "*/build/outputs/*" | sort || true
-
+            echo "ERROR: APK tidak ditemukan"
             exit 1
           fi
 
-          echo "APK ditemukan:"
-          echo "$APK"
-
           mkdir -p output
-
-          cp "$APK" \
-            "output/TokoKu-v3.22.15-debug.apk"
-
-          echo "APK siap:"
-          ls -lh output/TokoKu-v3.22.15-debug.apk
-
-      - name: Verify APK
-        shell: bash
-        run: |
-          echo "=== VERIFY APK ==="
-
-          test -f output/TokoKu-v3.22.15-debug.apk
+          cp "$APK" output/TokoKu-v3.22.15-debug.apk
 
           ls -lh output/TokoKu-v3.22.15-debug.apk
 
-          file output/TokoKu-v3.22
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.15-debug
+          path: output/TokoKu-v3.22.15-debug.apk
+          if-no-files-found: error
