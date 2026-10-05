@@ -49,12 +49,12 @@ jobs:
       - name: Find Android project
         run: |
           PROJECT=$(find tokoku-source -type f \
-            -name "settings.gradle" -o -name "settings.gradle.kts" \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             -print -quit | xargs -r dirname)
 
           if [ -z "$PROJECT" ]; then
             PROJECT=$(find tokoku-source -type f \
-              -name "build.gradle" -o -name "build.gradle.kts" \
+              \( -name "build.gradle" -o -name "build.gradle.kts" \) \
               -path "*/app/*" \
               -print -quit | xargs -r dirname | xargs -r dirname)
           fi
@@ -62,4 +62,55 @@ jobs:
           if [ -z "$PROJECT" ]; then
             echo "ERROR: Project Android tidak ditemukan"
             find tokoku-source -maxdepth 6 -type f | sort
-            exit
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT"
+          echo "PROJECT_DIR=$PROJECT" >> "$GITHUB_ENV"
+
+      - name: Install Gradle 8.7
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.7-bin.zip
+          unzip -q gradle-8.7-bin.zip -d "$HOME"
+          echo "$HOME/gradle-8.7/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare Gradle
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew --version
+          else
+            echo "gradlew tidak ditemukan."
+            echo "Menggunakan Gradle 8.7."
+            gradle --version
+          fi
+
+      - name: Build Debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew clean assembleDebug --no-daemon
+          else
+            gradle clean assembleDebug --no-daemon
+          fi
+
+      - name: Find APK
+        run: |
+          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK tidak ditemukan"
+            exit 1
+          fi
+
+          echo "APK ditemukan: $APK"
+          mkdir -p output
+          cp "$APK" "output/TokoKu-v3.22.15-debug.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.15-debug
+          path: output/TokoKu-v3.22.15-debug.apk
+          if-no-files-found: error
