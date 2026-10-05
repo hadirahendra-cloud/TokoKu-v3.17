@@ -22,13 +22,10 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      - name: Check Android SDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          which sdkmanager
-          sdkmanager --version
-          adb version
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
 
       - name: Find ZIP
         id: findzip
@@ -38,7 +35,6 @@ jobs:
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: ZIP sumber tidak ditemukan."
-            echo "Isi repository:"
             find . -maxdepth 3 -type f | sort
             exit 1
           fi
@@ -52,55 +48,38 @@ jobs:
           mkdir -p tokoku-project
           unzip -q "${{ steps.findzip.outputs.zip_file }}" -d tokoku-project
 
-          echo "Isi hasil extract:"
-          find tokoku-project -maxdepth 3 -type f | head -100
-
       - name: Locate Android Project
         id: project
         shell: bash
         run: |
-          PROJECT_DIR=""
-
-          SETTINGS=$(find tokoku-project -type f \( \
-            -name "settings.gradle" -o \
-            -name "settings.gradle.kts" \
-          \) | head -n 1)
+          SETTINGS=$(find tokoku-project -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            | head -n 1)
 
           if [ -n "$SETTINGS" ]; then
             PROJECT_DIR=$(dirname "$SETTINGS")
-          fi
+          else
+            BUILD_FILE=$(find tokoku-project -type f \
+              \( -path "*/app/build.gradle" -o -path "*/app/build.gradle.kts" \) \
+              | head -n 1)
 
-          if [ -z "$PROJECT_DIR" ]; then
-            BUILD_FILE=$(find tokoku-project -type f \( \
-              -path "*/app/build.gradle" -o \
-              -path "*/app/build.gradle.kts" \
-            \) | head -n 1)
-
-            if [ -n "$BUILD_FILE" ]; then
-              PROJECT_DIR=$(dirname "$(dirname "$BUILD_FILE")")
+            if [ -z "$BUILD_FILE" ]; then
+              echo "ERROR: Project Android tidak ditemukan."
+              find tokoku-project -type f | sort
+              exit 1
             fi
+
+            PROJECT_DIR=$(dirname "$(dirname "$BUILD_FILE")")
           fi
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Project Android tidak ditemukan."
-            find tokoku-project -type f | sort
-            exit 1
-          fi
-
-          echo "Project Android ditemukan: $PROJECT_DIR"
+          echo "Project Android: $PROJECT_DIR"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Build APK
         working-directory: ${{ steps.project.outputs.project_dir }}
         shell: bash
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew clean assembleDebug --no-daemon
-          else
-            echo "gradlew tidak ditemukan."
-            exit 1
-          fi
+          gradle clean assembleDebug --no-daemon
 
       - name: Collect APK
         shell: bash
