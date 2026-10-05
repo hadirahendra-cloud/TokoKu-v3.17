@@ -211,43 +211,11 @@ jobs:
           print("Pengeluaran Harian Belanja/Operasional patch OK")
           PY
 
-      - name: Fix receipt footer
-        shell: bash
+            - name: Set version 3.22.15
         run: |
           set -e
-          python3 - <<'PY'
-          from pathlib import Path
-          root=Path("app/src/main")
-          new="Jazakumullah Khairon telah berbelanja di Toko RangMudo Jr"
-          old_list=[
-            "Terima kasih telah berbelanja di TokoKu",
-            "Terima kasih telah berbelanja di Tokoku",
-            "Terimakasih telah berbelanja di TokoKu",
-            "Terimakasih telah berbelanja di Tokoku",
-          ]
-          for p in root.rglob("*"):
-            if p.is_file() and p.suffix.lower() in {".html",".htm",".js",".jsx",".ts",".tsx",".kt",".java",".xml",".json",".txt"}:
-              try:
-                text=p.read_text(encoding="utf-8")
-              except Exception:
-                continue
-              changed=text
-              for old in old_list:
-                changed=changed.replace(old,new)
-              if changed!=text:
-                p.write_text(changed,encoding="utf-8")
-          found=False
-          for p in root.rglob("*"):
-            if p.is_file():
-              try:
-                if new in p.read_text(encoding="utf-8",errors="ignore"):
-                  found=True
-                  break
-              except Exception:
-                pass
-          if not found:
-            raise SystemExit("STOP: footer baru tidak ditemukan.")
-          PY
+          sed -i -E "s/versionCode[[:space:]]+[0-9]+/versionCode 41/" app/build.gradle
+          sed -i -E "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '3.22.15'/" app/build.gradle
 
       - name: Set version 3.22.15
         run: |
