@@ -1,124 +1,347 @@
-name: Build TokoKu v3.22.15 Signed
+name: Build TokoKu v3.22.15 - Belanja Operasional
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-
-      - name: Setup Gradle
+      - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      - name: Find ZIP
-        id: findzip
-        shell: bash
+      - name: Setup Android SDK
         run: |
-          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP tidak ditemukan"
-            exit 1
+      - name: Extract READY source
+        run: |
+          set -e
+
+          ZIP="$(find . -type f -name 'TokoKu-v3.22.15-Pengeluaran-Harian-READY.zip' -print -quit)"
+
+          if [ -z "$ZIP" ]; then
+            ZIP="$(find . -type f -name '*.zip' -print -quit)"
           fi
 
-          echo "ZIP: $ZIP_FILE"
-          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+          test -n "$ZIP"
 
-      - name: Extract ZIP
+          rm -rf build-project
+          mkdir build-project
+          unzip -q "$ZIP" -d build-project
+
+          APP_GRADLE="$(find build-project -type f -path '*/app/build.gradle' -print -quit)"
+          test -n "$APP_GRADLE"
+
+          PROJECT_DIR="$(dirname "$(dirname "$APP_GRADLE")")"
+          cp -R "$PROJECT_DIR/." .
+
+          test -f app/build.gradle
+          test -f app/src/main/assets/index.html
+
+      - name: Add Belanja and Operasional categories
         run: |
-          rm -rf tokoku-project
-          mkdir -p tokoku-project
-          unzip -q "${{ steps.findzip.outputs.zip_file }}" -d tokoku-project
+          set -e
 
-      - name: Locate Android Project
-        id: project
-        shell: bash
+          python3 - <<'PY'
+          from pathlib import Path
+
+          candidates = list(Path("app/src/main").rglob("index.html"))
+
+          if not candidates:
+              raise SystemExit("STOP: index.html tidak ditemukan.")
+
+          target = candidates[0]
+          s = target.read_text(encoding="utf-8")
+
+          if "tokoku-pengeluaran-kategori-v1" in s:
+              print("Kategori sudah ada.")
+              raise SystemExit(0)
+
+          patch = r"""
+          <style id="tokoku-pengeluaran-kategori-v1">
+          #tokoku-expense-cat-tabs{
+            display:flex;
+            gap:8px;
+            margin:2px 0 10px;
+          }
+
+          .tokoku-expense-cat{
+            flex:1;
+            border:1px solid #dce4ec;
+            background:#fff;
+            color:#65717f;
+            border-radius:12px;
+            padding:9px 10px;
+            font-size:12px;
+            font-weight:700;
+          }
+
+          .tokoku-expense-cat.active{
+            background:#1476df;
+            color:#fff;
+            border-color:#1476df;
+          }
+          </style>
+
+          <script id="tokoku-pengeluaran-kategori-v1">
+          (function(){
+            "use strict";
+
+            const KEY="tokoku-expense-category-v1";
+            const CATS=["Belanja","Operasional"];
+
+            function load(){
+              try{
+                return JSON.parse(localStorage.getItem(KEY)||"{}");
+              }catch(e){
+                return {};
+              }
+            }
+
+            function save(data){
+              try{
+                localStorage.setItem(KEY,JSON.stringify(data));
+              }catch(e){}
+            }
+
+            function itemKey(el){
+              return btoa(
+                unescape(
+                  encodeURIComponent(
+                    (el.innerText||"").trim()
+                  )
+                )
+              ).slice(0,180);
+            }
+
+            function findExpenseSection(){
+              const all=[...document.querySelectorAll("section,main,div")];
+
+              return all.find(el=>{
+                const t=(el.innerText||"").trim();
+
+                return /pengeluaran/i.test(t) &&
+                  el.querySelector("button,input,select,.card,.item");
+              });
+            }
+
+            function findItems(sec){
+              const selectors=[
+                "#expenseList",
+                ".expense-list",
+                ".pengeluaran-list",
+                "[id*=expense] [class*=item]",
+                "[id*=pengeluaran] [class*=item]",
+                "[class*=expense] .card",
+                "[class*=pengeluaran] .card"
+              ];
+
+              for(const q of selectors){
+                const a=[
+                  ...sec.querySelectorAll(q)
+                ].filter(x=>x.id!=="tokoku-expense-tabs-wrap");
+
+                if(a.length) return a;
+              }
+
+              return [...sec.children].filter(x=>{
+                const t=(x.innerText||"").trim();
+
+                return t &&
+                  /\d/.test(t) &&
+                  !/tambah|simpan|pengeluaran/i.test(t);
+              });
+            }
+
+            function build(){
+              const sec=findExpenseSection();
+
+              if(!sec) return;
+
+              const items=findItems(sec);
+
+              if(!items.length) return;
+
+              let wrap=document.getElementById(
+                "tokoku-expense-tabs-wrap"
+              );
+
+              if(wrap) wrap.remove();
+
+              wrap=document.createElement("div");
+
+              wrap.id="tokoku-expense-tabs-wrap";
+
+              wrap.innerHTML=
+                '<div id="tokoku-expense-cat-tabs">'+
+                '</div>';
+
+              const catTabs=
+                wrap.querySelector(
+                  "#tokoku-expense-cat-tabs"
+                );
+
+              const data=load();
+
+              let selected="Belanja";
+
+              function apply(){
+                catTabs
+                  .querySelectorAll("button")
+                  .forEach(btn=>{
+                    btn.classList.toggle(
+                      "active",
+                      btn.dataset.cat===selected
+                    );
+                  });
+
+                items.forEach(item=>{
+                  const category=
+                    data[itemKey(item)] || "Belanja";
+
+                  item.style.display=
+                    category===selected ? "" : "none";
+                });
+              }
+
+              CATS.forEach(cat=>{
+                const btn=document.createElement("button");
+
+                btn.className=
+                  "tokoku-expense-cat"+
+                  (cat===selected ? " active" : "");
+
+                btn.dataset.cat=cat;
+                btn.textContent=cat;
+
+                btn.onclick=()=>{
+                  selected=cat;
+                  apply();
+                };
+
+                catTabs.appendChild(btn);
+              });
+
+              wrap.style.margin="10px 0";
+
+              const first=items[0];
+
+              if(first.parentNode){
+                first.parentNode.insertBefore(
+                  wrap,
+                  first
+                );
+              }
+
+              apply();
+            }
+
+            let timer=null;
+
+            function schedule(){
+              clearTimeout(timer);
+              timer=setTimeout(build,350);
+            }
+
+            document.addEventListener(
+              "DOMContentLoaded",
+              schedule
+            );
+
+            window.addEventListener(
+              "load",
+              schedule
+            );
+
+            const observer=
+              new MutationObserver(schedule);
+
+            observer.observe(
+              document.documentElement,
+              {
+                subtree:true,
+                childList:true
+              }
+            );
+
+          })();
+          </script>
+          """
+
+          if "</body>" not in s.lower():
+              raise SystemExit(
+                "STOP: penutup body tidak ditemukan."
+              )
+
+          idx=s.lower().rfind("</body>")
+
+          s=s[:idx]+patch+s[idx:]
+
+          target.write_text(
+            s,
+            encoding="utf-8"
+          )
+
+          print(
+            "Kategori Belanja dan Operasional ditambahkan:",
+            target
+          )
+          PY
+
+      - name: Set version 3.22.15
         run: |
-          SETTINGS=$(find tokoku-project -type f \
-            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            | head -n 1)
+          set -e
 
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle tidak ditemukan"
-            exit 1
-          fi
+          sed -i -E \
+            "s/versionCode[[:space:]]+[0-9]+/versionCode 40/" \
+            app/build.gradle
 
-          PROJECT_DIR=$(dirname "$SETTINGS")
+          sed -i -E \
+            "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '3.22.15'/" \
+            app/build.gradle
 
-          echo "PROJECT: $PROJECT_DIR"
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          grep -q "versionCode 40" app/build.gradle
+          grep -q "versionName '3.22.15'" app/build.gradle
 
-      - name: Build APK
-        working-directory: ${{ steps.project.outputs.project_dir }}
+      - name: Build DEBUG APK
         run: |
-          gradle clean assembleDebug --no-daemon
+          set -e
 
-      - name: Decode Keystore
-        shell: bash
-        env:
-          KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+          gradle :app:clean :app:assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+          test -s \
+            app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Rename APK
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "ERROR: TOKOKU_KEYSTORE_BASE64 belum tersedia"
-            exit 1
-          fi
-
-          echo "$KEYSTORE_BASE64" | base64 --decode > tokoku-release.keystore
-
-          test -s tokoku-release.keystore
-
-      - name: Sign APK
-        shell: bash
-        env:
-          STORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
-        run: |
-          APK=$(find "${{ steps.project.outputs.project_dir }}" \
-            -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan"
-            exit 1
-          fi
-
-          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-
-          "$APKSIGNER" sign \
-            --ks tokoku-release.keystore \
-            --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass "pass:$STORE_PASSWORD" \
-            --key-pass "pass:$KEY_PASSWORD" \
-            --out TokoKu-v3.22.15-signed.apk \
-            "$APK"
-
-      - name: Verify Signature
-        run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose \
-            TokoKu-v3.22.15-signed.apk
+          cp \
+            app/build/outputs/apk/debug/app-debug.apk \
+            TokoKu-v3.22.15-Belanja-Operasional.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.15-signed
-          path: TokoKu-v3.22.15-signed.apk
+          name: TokoKu-v3.22.15-Belanja-Operasional
+          path: TokoKu-v3.22.15-Belanja-Operasional.apk
           if-no-files-found: error
