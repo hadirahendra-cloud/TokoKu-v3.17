@@ -1,0 +1,341 @@
+name: Build TokoKu v3.22.15 - Belanja Operasional STABLE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Setup Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Extract READY source
+        run: |
+          set -e
+          ZIP="$(find . -type f -name 'TokoKu-v3.22.15-Pengeluaran-Harian-TAB-HARI-GITHUB-READY.zip' -print -quit)"
+          test -n "$ZIP"
+
+          rm -rf build-project
+          mkdir build-project
+          unzip -q "$ZIP" -d build-project
+
+          APP_GRADLE="$(find build-project -type f -path "*/app/build.gradle" -print -quit)"
+
+          if [ -z "$APP_GRADLE" ]; then
+            echo "STOP: app/build.gradle tidak ditemukan di dalam ZIP."
+            find build-project -maxdepth 5 -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$(dirname "$APP_GRADLE")")"
+
+          echo "Project Android ditemukan: $PROJECT_DIR"
+
+          test -f "$PROJECT_DIR/app/build.gradle"
+          test -f "$PROJECT_DIR/app/src/main/assets/index.html"
+
+          cp -R "$PROJECT_DIR/." .
+
+      - name: Verify Pengeluaran Harian patch
+        run: |
+          set -e
+          grep -q "tokoku-pengeluaran-tab-harian-v1" app/src/main/assets/index.html
+          echo "Pengeluaran Harian patch ditemukan."
+
+      - name: Add safe Belanja and Operasional tabs
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+
+          target = Path("app/src/main/assets/index.html")
+          s = target.read_text(encoding="utf-8")
+
+          if "tokoku-pengeluaran-kategori-v3" in s:
+              print("Category patch already present.")
+              raise SystemExit(0)
+
+          patch = r"""
+          <style id="tokoku-pengeluaran-kategori-v3">
+          #tokoku-expense-category-tabs-v3{
+            display:flex;
+            gap:8px;
+            margin:0 0 10px;
+          }
+          #tokoku-expense-category-tabs-v3 button{
+            flex:1;
+            min-height:40px;
+            border:1px solid #dce4ec;
+            border-radius:12px;
+            background:#fff;
+            color:#65717f;
+            font-size:12px;
+            font-weight:700;
+            padding:9px 10px;
+          }
+          #tokoku-expense-category-tabs-v3 button.active{
+            background:#1476df;
+            color:#fff;
+            border-color:#1476df;
+          }
+          </style>
+
+          <script id="tokoku-pengeluaran-kategori-v3">
+          (function(){
+            "use strict";
+
+            const WRAP="tokoku-expense-tabs-wrap";
+            const CAT="tokoku-expense-category-tabs-v3";
+            const KEY="tokoku-expense-category-v3";
+            const CATS=["Belanja","Operasional"];
+
+            function addTabs(){
+              const host=document.getElementById(WRAP);
+              if(!host) return false;
+              if(document.getElementById(CAT)) return true;
+
+              const tabs=document.createElement("div");
+              tabs.id=CAT;
+
+              CATS.forEach(function(name){
+                const b=document.createElement("button");
+                b.type="button";
+                b.textContent=name;
+                b.dataset.category=name;
+
+                b.addEventListener("click",function(e){
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.stopImmediatePropagation();
+
+                  localStorage.setItem(KEY,name);
+
+                  tabs.querySelectorAll("button").forEach(function(x){
+                    x.classList.toggle(
+                      "active",
+                      x.dataset.category===name
+                    );
+                  });
+
+                  return false;
+                },true);
+
+                tabs.appendChild(b);
+              });
+
+              host.insertBefore(tabs,host.firstChild);
+
+              const saved=localStorage.getItem(KEY)||"Belanja";
+
+              tabs.querySelectorAll("button").forEach(function(x){
+                x.classList.toggle(
+                  "active",
+                  x.dataset.category===saved
+                );
+              });
+
+              return true;
+            }
+
+            let tries=0;
+
+            function start(){
+              if(addTabs()) return;
+              tries++;
+              if(tries<30) setTimeout(start,500);
+            }
+
+            document.addEventListener("DOMContentLoaded",start);
+            window.addEventListener("load",start);
+          })();
+          </script>
+          """
+
+          pos=s.lower().rfind("</body>")
+          if pos<0:
+              raise SystemExit("STOP: </body> tidak ditemukan.")
+
+          s=s[:pos]+patch+s[pos:]
+          target.write_text(s,encoding="utf-8")
+          print("Belanja/Operasional patch added.")
+          PY
+
+      - name: Fix receipt footer
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("app/src/main")
+          old_list = [
+              "Terima kasih telah berbelanja di TokoKu",
+              "Terima kasih telah berbelanja di Tokoku",
+              "Terimakasih telah berbelanja di TokoKu",
+              "Terimakasih telah berbelanja di Tokoku",
+          ]
+          new = "Jazakumullah Khairon telah berbelanja di Toko RangMudo Jr"
+
+          changed = []
+          for p in root.rglob("*"):
+              if not p.is_file():
+                  continue
+              if p.suffix.lower() not in {
+                  ".html",".htm",".js",".jsx",".ts",".tsx",
+                  ".kt",".java",".xml",".json",".txt"
+              }:
+                  continue
+              try:
+                  s = p.read_text(encoding="utf-8")
+              except Exception:
+                  continue
+
+              ns = s
+              for old in old_list:
+                  ns = ns.replace(old, new)
+
+              if ns != s:
+                  p.write_text(ns, encoding="utf-8")
+                  changed.append(str(p))
+
+          print("Footer changed:", changed)
+
+          found = False
+          for p in root.rglob("*"):
+              if p.is_file():
+                  try:
+                      if new in p.read_text(encoding="utf-8", errors="ignore"):
+                          found = True
+                          print("Footer verified in:", p)
+                  except Exception:
+                      pass
+
+          if not found:
+              raise SystemExit("STOP: footer RangMudo Jr tidak ditemukan.")
+          PY
+
+      - name: Set version 3.22.15
+        run: |
+          set -e
+          sed -i -E "s/versionCode[[:space:]]+[0-9]+/versionCode 41/" app/build.gradle
+          sed -i -E "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '3.22.15'/" app/build.gradle
+
+          grep -q "versionCode 41" app/build.gradle
+          grep -q "versionName '3.22.15'" app/build.gradle
+
+          echo "Version:"
+          grep -nE "applicationId|versionCode|versionName" app/build.gradle
+
+      - name: Build DEBUG APK
+        run: |
+          set -e
+          gradle :app:clean :app:assembleDebug --no-daemon --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Prepare existing TokoKu keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          test -n "$KEYSTORE_B64"
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
+          test -s "$RUNNER_TEMP/tokoku-release.jks"
+
+      - name: Sign with existing TokoKu key
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          SECRET_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
+        run: |
+          set -e
+
+          KS="$RUNNER_TEMP/tokoku-release.jks"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          OUT="app/build/outputs/apk/debug/TokoKu-v3.22.15-Belanja-Operasional-STABLE.apk"
+
+          test -n "$KEYSTORE_PASSWORD"
+
+          ALIAS="$(keytool -list -v \
+            -keystore "$KS" \
+            -storepass "$KEYSTORE_PASSWORD" 2>/dev/null |
+            awk -F': ' '/Alias name:/{print $2; exit}')"
+
+          if [ -z "$ALIAS" ]; then
+            ALIAS="$SECRET_ALIAS"
+          fi
+
+          test -n "$ALIAS"
+          echo "Signing alias detected."
+
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+
+          if [ -n "$KEY_PASSWORD" ]; then
+            "$APKSIGNER" sign \
+              --ks "$KS" \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$ALIAS" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              --out "$OUT" \
+              "$APK" || rm -f "$OUT"
+          fi
+
+          if [ ! -s "$OUT" ]; then
+            "$APKSIGNER" sign \
+              --ks "$KS" \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$ALIAS" \
+              --key-pass "pass:$KEYSTORE_PASSWORD" \
+              --out "$OUT" \
+              "$APK"
+          fi
+
+          test -s "$OUT"
+
+      - name: Verify final APK
+        run: |
+          set -e
+
+          APK="app/build/outputs/apk/debug/TokoKu-v3.22.15-Belanja-Operasional-STABLE.apk"
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+
+          BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+          echo "$BADGING"
+
+          echo "$BADGING" | grep -E "versionCode='41' versionName='3.22.15'"
+
+          mkdir -p output
+          cp "$APK" "output/TokoKu-v3.22.15-Belanja-Operasional-STABLE.apk"
+
+          echo "FINAL APK:"
+          ls -lh output/TokoKu-v3.22.15-Belanja-Operasional-STABLE.apk
+
+      - name: Upload FINAL APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.15-Belanja-Operasional-STABLE
+          path: output/TokoKu-v3.22.15-Belanja-Operasional-STABLE.apk
+          if-no-files-found: error
+          retention-days: 30
