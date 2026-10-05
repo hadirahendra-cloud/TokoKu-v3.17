@@ -335,8 +335,7 @@ jobs:
           </script>
           """
 
-          index =
-            s.lower().rfind("</body>")
+          index = s.lower().rfind("</body>")
 
           if index < 0:
               raise SystemExit(
