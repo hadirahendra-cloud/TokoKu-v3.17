@@ -1,4 +1,4 @@
-name: Build TokoKu v3.22.15
+name: Build TokoKu v3.22.15 Signed
 
 on:
   workflow_dispatch:
@@ -34,12 +34,11 @@ jobs:
           ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP sumber tidak ditemukan."
-            find . -maxdepth 3 -type f | sort
+            echo "ERROR: ZIP tidak ditemukan"
             exit 1
           fi
 
-          echo "ZIP ditemukan: $ZIP_FILE"
+          echo "ZIP: $ZIP_FILE"
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Extract ZIP
@@ -56,33 +55,41 @@ jobs:
             \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             | head -n 1)
 
-          if [ -n "$SETTINGS" ]; then
-            PROJECT_DIR=$(dirname "$SETTINGS")
-          else
-            BUILD_FILE=$(find tokoku-project -type f \
-              \( -path "*/app/build.gradle" -o -path "*/app/build.gradle.kts" \) \
-              | head -n 1)
-
-            if [ -z "$BUILD_FILE" ]; then
-              echo "ERROR: Project Android tidak ditemukan."
-              find tokoku-project -type f | sort
-              exit 1
-            fi
-
-            PROJECT_DIR=$(dirname "$(dirname "$BUILD_FILE")")
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle tidak ditemukan"
+            exit 1
           fi
 
-          echo "Project Android: $PROJECT_DIR"
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo "PROJECT: $PROJECT_DIR"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Build APK
         working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
         run: |
           gradle clean assembleDebug --no-daemon
 
-      - name: Collect APK
+      - name: Decode Keystore
         shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ERROR: TOKOKU_KEYSTORE_BASE64 belum tersedia"
+            exit 1
+          fi
+
+          echo "$KEYSTORE_BASE64" | base64 --decode > tokoku-release.keystore
+
+          test -s tokoku-release.keystore
+
+      - name: Sign APK
+        shell: bash
+        env:
+          STORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
         run: |
           APK=$(find "${{ steps.project.outputs.project_dir }}" \
             -type f \
@@ -90,20 +97,28 @@ jobs:
             | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan."
-            find "${{ steps.project.outputs.project_dir }}" \
-              -type f -name "*.apk" -print
+            echo "ERROR: APK tidak ditemukan"
             exit 1
           fi
 
-          echo "APK ditemukan: $APK"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
 
-          mkdir -p output
-          cp "$APK" "output/TokoKu-v3.22.15-debug.apk"
+          "$APKSIGNER" sign \
+            --ks tokoku-release.keystore \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "pass:$STORE_PASSWORD" \
+            --key-pass "pass:$KEY_PASSWORD" \
+            --out TokoKu-v3.22.15-signed.apk \
+            "$APK"
+
+      - name: Verify Signature
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose \
+            TokoKu-v3.22.15-signed.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.15-debug
-          path: output/TokoKu-v3.22.15-debug.apk
+          name: TokoKu-v3.22.15-signed
+          path: TokoKu-v3.22.15-signed.apk
           if-no-files-found: error
