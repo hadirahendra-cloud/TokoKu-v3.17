@@ -1,4 +1,4 @@
-name: Build TokoKu v3.22.15 - Belanja Operasional - FINAL FIX
+name: Build TokoKu v3.22.15 - Belanja Operasional - FINAL FIX 2
 
 on:
   workflow_dispatch:
@@ -11,7 +11,6 @@ jobs:
       contents: read
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -28,36 +27,8 @@ jobs:
         shell: bash
         run: |
           set -e
-
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-
-          which sdkmanager
-          sdkmanager --version
-
           yes | sdkmanager --licenses >/dev/null || true
-
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-
-          echo "Android SDK berhasil dipasang."
-
-      - name: Verify Android SDK
-        shell: bash
-        run: |
-          set -e
-
-          which sdkmanager
-          sdkmanager --version
-
-          test -x "$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
-
-          adb version
-
-          echo "Android SDK CHECK OK."
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
@@ -69,560 +40,76 @@ jobs:
         run: |
           set -e
 
-          ZIP=""
-
-          ZIP="$(find . \
-            -type f \
-            -name 'TokoKu-v3.22.9-Printer-Bluetooth-GITHUB-READY.zip' \
-            -print -quit)"
-
-          if [ -z "$ZIP" ]; then
-            ZIP="$(find . \
-              -type f \
-              -name '*.zip' \
-              -print -quit)"
-          fi
+          ZIP="$(find . -type f -name '*.zip' -print -quit)"
 
           if [ -z "$ZIP" ]; then
             echo "ERROR: ZIP TokoKu tidak ditemukan."
-
-            echo "Daftar file repository:"
-            find . -maxdepth 4 -type f | sort
-
             exit 1
           fi
 
-          echo "ZIP ditemukan:"
-          echo "$ZIP"
+          echo "ZIP ditemukan: $ZIP"
 
           rm -rf build-project
           mkdir -p build-project
-
           unzip -q "$ZIP" -d build-project
 
-          echo "Mencari Android project..."
-
-          APP_GRADLE="$(
-            find build-project \
-              -type f \
-              -path '*/app/build.gradle' \
-              -print -quit
-          )"
+          APP_GRADLE="$(find build-project -type f -path '*/app/build.gradle' -print -quit)"
 
           if [ -z "$APP_GRADLE" ]; then
-            APP_GRADLE="$(
-              find build-project \
-                -type f \
-                -path '*/app/build.gradle.kts' \
-                -print -quit
-            )"
+            APP_GRADLE="$(find build-project -type f -path '*/app/build.gradle.kts' -print -quit)"
           fi
 
           if [ -z "$APP_GRADLE" ]; then
-            echo "ERROR: app/build.gradle tidak ditemukan."
-
-            find build-project \
-              -maxdepth 5 \
-              -type f | sort
-
+            echo "ERROR: Android project tidak ditemukan."
+            find build-project -maxdepth 6 -type f | sort
             exit 1
           fi
 
-          echo "Gradle ditemukan:"
-          echo "$APP_GRADLE"
+          PROJECT_DIR="$(dirname "$(dirname "$APP_GRADLE")")"
 
-          PROJECT_DIR="$(
-            dirname "$(dirname "$APP_GRADLE")"
-          )"
-
-          echo "Project Android:"
-          echo "$PROJECT_DIR"
+          echo "Project ditemukan: $PROJECT_DIR"
 
           cp -R "$PROJECT_DIR/." .
-
-          test -f app/build.gradle || \
-            test -f app/build.gradle.kts
-
-          test -f app/src/main/assets/index.html
-
-          echo "Source TokoKu berhasil disiapkan."
 
       - name: Fix receipt footer
         shell: bash
         run: |
           set -e
 
-          python3 - <<'PY'
+          python3 <<'PY'
           from pathlib import Path
 
           root = Path("app/src/main")
+          new_text = "Jazakumullah Khairon telah berbelanja di Toko RangMudo Jr"
 
-          old_list = [
+          old_texts = [
               "Terima kasih telah berbelanja di TokoKu",
               "Terima kasih telah berbelanja di Tokoku",
               "Terimakasih telah berbelanja di TokoKu",
               "Terimakasih telah berbelanja di Tokoku",
           ]
 
-          new = (
-              "Jazakumullah Khairon telah berbelanja "
-              "di Toko RangMudo Jr"
-          )
+          changed = 0
 
           for p in root.rglob("*"):
               if not p.is_file():
                   continue
 
               if p.suffix.lower() not in {
-                  ".html",
-                  ".htm",
-                  ".js",
-                  ".jsx",
-                  ".ts",
-                  ".tsx",
-                  ".kt",
-                  ".java",
-                  ".xml",
-                  ".json",
-                  ".txt",
+                  ".html", ".htm", ".js", ".jsx",
+                  ".ts", ".tsx", ".kt", ".java",
+                  ".xml", ".json", ".txt"
               }:
                   continue
 
               try:
-                  s = p.read_text(encoding="utf-8")
+                  text = p.read_text(encoding="utf-8")
               except Exception:
                   continue
 
-              ns = s
+              new_value = text
 
-              for old in old_list:
-                  ns = ns.replace(old, new)
+              for old in old_texts:
+                  new_value = new_value.replace(old, new_text)
 
-              if ns != s:
-                  p.write_text(ns, encoding="utf-8")
-
-          hits = []
-
-          for p in root.rglob("*"):
-              if not p.is_file():
-                  continue
-
-              try:
-                  text = p.read_text(
-                      encoding="utf-8",
-                      errors="ignore"
-                  )
-
-                  if new in text:
-                      hits.append(str(p))
-
-              except Exception:
-                  pass
-
-          if not hits:
-              raise SystemExit(
-                  "STOP: footer RangMudo Jr tidak ditemukan."
-              )
-
-          print("Footer verified:")
-          for h in hits:
-              print(h)
-          PY
-
-      - name: Keep Pengeluaran Harian
-        shell: bash
-        run: |
-          set -e
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          candidates = list(
-              Path("app/src/main").rglob("index.html")
-          )
-
-          if not candidates:
-              raise SystemExit(
-                  "STOP: index.html tidak ditemukan."
-              )
-
-          target = candidates[0]
-
-          s = target.read_text(
-              encoding="utf-8"
-          )
-
-          if "tokoku-pengeluaran-tab-harian-v1" in s:
-              print(
-                  "Pengeluaran Harian sudah tersedia."
-              )
-          else:
-              print(
-                  "Pengeluaran Harian tidak diubah."
-              )
-          PY
-
-      - name: Add safe Belanja and Operasional tabs
-        shell: bash
-        run: |
-          set -e
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          candidates = list(
-              Path("app/src/main").rglob("index.html")
-          )
-
-          if not candidates:
-              raise SystemExit(
-                  "STOP: index.html tidak ditemukan."
-              )
-
-          target = candidates[0]
-
-          s = target.read_text(
-              encoding="utf-8"
-          )
-
-          if "tokoku-pengeluaran-kategori-safe-v1" in s:
-              print(
-                  "Kategori Belanja/Operasional sudah ada."
-              )
-              raise SystemExit(0)
-
-          patch = r"""
-          <style id="tokoku-pengeluaran-kategori-safe-v1">
-          #tokoku-expense-category-safe{
-            display:flex;
-            gap:8px;
-            margin:8px 0 12px;
-          }
-
-          #tokoku-expense-category-safe button{
-            flex:1;
-            min-height:40px;
-            border:1px solid #dce4ec;
-            border-radius:12px;
-            background:#fff;
-            color:#65717f;
-            font-weight:700;
-            font-size:13px;
-            padding:8px 10px;
-          }
-
-          #tokoku-expense-category-safe button.active{
-            background:#1476df;
-            color:#fff;
-            border-color:#1476df;
-          }
-          </style>
-
-          <script id="tokoku-pengeluaran-kategori-safe-v1">
-          (function(){
-            "use strict";
-
-            const WRAP_ID =
-              "tokoku-expense-category-safe";
-
-            const SELECTED_KEY =
-              "tokoku-expense-selected-category";
-
-            function findDayTabs(){
-              return document.getElementById(
-                "tokoku-expense-tabs-wrap"
-              );
-            }
-
-            function build(){
-
-              const dayTabs =
-                findDayTabs();
-
-              if(!dayTabs){
-                return;
-              }
-
-              let wrap =
-                document.getElementById(
-                  WRAP_ID
-                );
-
-              if(wrap){
-                return;
-              }
-
-              wrap =
-                document.createElement("div");
-
-              wrap.id = WRAP_ID;
-
-              wrap.innerHTML =
-                '<button type="button" data-category="Belanja">Belanja</button>' +
-                '<button type="button" data-category="Operasional">Operasional</button>';
-
-              dayTabs.parentNode.insertBefore(
-                wrap,
-                dayTabs
-              );
-
-              let selected =
-                localStorage.getItem(
-                  SELECTED_KEY
-                ) || "Belanja";
-
-              function apply(){
-
-                wrap
-                  .querySelectorAll("button")
-                  .forEach(button => {
-
-                    button.classList.toggle(
-                      "active",
-                      button.dataset.category ===
-                      selected
-                    );
-
-                  });
-              }
-
-              wrap
-                .querySelectorAll("button")
-                .forEach(button => {
-
-                  button.addEventListener(
-                    "click",
-                    function(event){
-
-                      event.preventDefault();
-                      event.stopPropagation();
-                      event.stopImmediatePropagation();
-
-                      selected =
-                        button.dataset.category;
-
-                      localStorage.setItem(
-                        SELECTED_KEY,
-                        selected
-                      );
-
-                      apply();
-
-                      return false;
-                    },
-                    true
-                  );
-
-                });
-
-              apply();
-            }
-
-            let timer = null;
-
-            function schedule(){
-
-              clearTimeout(timer);
-
-              timer =
-                setTimeout(
-                  build,
-                  700
-                );
-            }
-
-            document.addEventListener(
-              "DOMContentLoaded",
-              schedule
-            );
-
-            window.addEventListener(
-              "load",
-              schedule
-            );
-
-            const observer =
-              new MutationObserver(
-                schedule
-              );
-
-            observer.observe(
-              document.documentElement,
-              {
-                childList:true,
-                subtree:true
-              }
-            );
-
-          })();
-          </script>
-          """
-
-          index =
-            s.lower().rfind("</body>")
-
-          if index < 0:
-              raise SystemExit(
-                  "STOP: </body> tidak ditemukan."
-              )
-
-          s =
-            s[:index] + \
-            patch + \
-            s[index:]
-
-          target.write_text(
-              s,
-              encoding="utf-8"
-          )
-
-          print(
-              "Belanja & Operasional ditambahkan:"
-          )
-          print(target)
-          PY
-
-      - name: Set version 3.22.15
-        shell: bash
-        run: |
-          set -e
-
-          if [ -f app/build.gradle ]; then
-
-            sed -i -E \
-              "s/versionCode[[:space:]]+[0-9]+/versionCode 41/" \
-              app/build.gradle
-
-            sed -i -E \
-              "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '3.22.15'/" \
-              app/build.gradle
-
-            grep -q "versionCode 41" \
-              app/build.gradle
-
-            grep -q "versionName '3.22.15'" \
-              app/build.gradle
-
-          else
-            echo "build.gradle tidak ditemukan."
-            exit 1
-          fi
-
-      - name: Build DEBUG APK
-        shell: bash
-        run: |
-          set -e
-
-          gradle \
-            :app:clean \
-            :app:assembleDebug \
-            --no-daemon \
-            --stacktrace
-
-          test -s \
-            app/build/outputs/apk/debug/app-debug.apk
-
-          echo "DEBUG APK berhasil dibuat."
-
-      - name: Prepare release keystore
-        env:
-          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
-        shell: bash
-        run: |
-          set -e
-
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "ERROR: TOKOKU_KEYSTORE_BASE64 belum tersedia."
-            exit 1
-          fi
-
-          echo "$KEYSTORE_B64" |
-            base64 --decode >
-            "$RUNNER_TEMP/tokoku-release.jks"
-
-          test -s \
-            "$RUNNER_TEMP/tokoku-release.jks"
-
-          echo "Keystore berhasil disiapkan."
-
-      - name: Sign APK
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
-          SECRET_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
-        shell: bash
-        run: |
-          set -e
-
-          KS="$RUNNER_TEMP/tokoku-release.jks"
-
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-
-          OUT="app/build/outputs/apk/debug/TokoKu-v3.22.15-Belanja-Operasional.apk"
-
-          if [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "ERROR: TOKOKU_KEYSTORE_PASSWORD belum tersedia."
-            exit 1
-          fi
-
-          if [ -z "$SECRET_ALIAS" ]; then
-            echo "ERROR: TOKOKU_KEY_ALIAS belum tersedia."
-            exit 1
-          fi
-
-          if [ -z "$KEY_PASSWORD" ]; then
-            echo "ERROR: TOKOKU_KEY_PASSWORD belum tersedia."
-            exit 1
-          fi
-
-          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-
-          test -x "$APKSIGNER"
-
-          "$APKSIGNER" sign \
-            --ks "$KS" \
-            --ks-pass "pass:$KEYSTORE_PASSWORD" \
-            --ks-key-alias "$SECRET_ALIAS" \
-            --key-pass "pass:$KEY_PASSWORD" \
-            --out "$OUT" \
-            "$APK"
-
-          test -s "$OUT"
-
-          echo "APK signed berhasil."
-
-      - name: Verify final APK
-        shell: bash
-        run: |
-          set -e
-
-          APK="app/build/outputs/apk/debug/TokoKu-v3.22.15-Belanja-Operasional.apk"
-
-          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-
-          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
-
-          "$APKSIGNER" verify \
-            --verbose \
-            --print-certs \
-            "$APK"
-
-          "$AAPT" dump badging "$APK"
-
-          mkdir -p output
-
-          cp "$APK" \
-            "output/TokoKu-v3.22.15-Belanja-Operasional.apk"
-
-          test -s \
-            "output/TokoKu-v3.22.15-Belanja-Operasional.apk"
-
-          echo "FINAL APK VERIFIED."
-
-      - name: Upload FINAL APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: TokoKu-v3.22.15-Belanja-Operasional
-          path: output/TokoKu-v3.22.15-Belanja-Operasional.apk
-          if-no-files-found: error
-          retention-days: 30
+              if new_value != text:
