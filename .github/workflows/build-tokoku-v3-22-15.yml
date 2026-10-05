@@ -1,4 +1,4 @@
-name: Build TokoKu v3.22.15 - Belanja Operasional
+name: Build TokoKu v3.22.15 - Belanja Operasional FIX
 
 on:
   workflow_dispatch:
@@ -32,16 +32,13 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Extract READY source
+      - name: Find and extract TokoKu source
         run: |
           set -e
-
-          ZIP="$(find . -type f -name 'TokoKu-v3.22.15-Pengeluaran-Harian-READY.zip' -print -quit)"
-
+          ZIP="$(find . -type f -name 'TokoKu-v3.22.9-Printer-Bluetooth-GITHUB-READY.zip' -print -quit)"
           if [ -z "$ZIP" ]; then
             ZIP="$(find . -type f -name '*.zip' -print -quit)"
           fi
-
           test -n "$ZIP"
 
           rm -rf build-project
@@ -57,31 +54,90 @@ jobs:
           test -f app/build.gradle
           test -f app/src/main/assets/index.html
 
-      - name: Add Belanja and Operasional categories
+      - name: Fix receipt footer
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("app/src/main")
+          old_list = [
+              "Terima kasih telah berbelanja di TokoKu",
+              "Terima kasih telah berbelanja di Tokoku",
+              "Terimakasih telah berbelanja di TokoKu",
+              "Terimakasih telah berbelanja di Tokoku",
+          ]
+          new = "Jazakumullah Khairon telah berbelanja di Toko RangMudo Jr"
+
+          changed = []
+
+          for p in root.rglob("*"):
+              if not p.is_file():
+                  continue
+
+              if p.suffix.lower() not in {
+                  ".html",".htm",".js",".jsx",".ts",".tsx",
+                  ".kt",".java",".xml",".json",".txt"
+              }:
+                  continue
+
+              try:
+                  s = p.read_text(encoding="utf-8")
+              except Exception:
+                  continue
+
+              ns = s
+
+              for old in old_list:
+                  ns = ns.replace(old, new)
+
+              if ns != s:
+                  p.write_text(ns, encoding="utf-8")
+                  changed.append(str(p))
+
+          print("Footer changed:", changed)
+
+          if not any(
+              new in p.read_text(
+                  encoding="utf-8",
+                  errors="ignore"
+              )
+              for p in root.rglob("*")
+              if p.is_file()
+          ):
+              raise SystemExit("STOP: footer RangMudo Jr tidak ditemukan.")
+
+          PY
+
+      - name: Rapihkan Pengeluaran dan Tambah Kategori
         run: |
           set -e
 
           python3 - <<'PY'
           from pathlib import Path
 
-          candidates = list(Path("app/src/main").rglob("index.html"))
+          candidates = list(
+              Path("app/src/main").rglob("index.html")
+          )
 
           if not candidates:
-              raise SystemExit("STOP: index.html tidak ditemukan.")
+              raise SystemExit(
+                  "STOP: index.html tidak ditemukan."
+              )
 
           target = candidates[0]
           s = target.read_text(encoding="utf-8")
 
-          if "tokoku-pengeluaran-kategori-v1" in s:
-              print("Kategori sudah ada.")
+          if "tokoku-pengeluaran-kategori-v2" in s:
+              print("Patch kategori sudah ada.")
               raise SystemExit(0)
 
           patch = r"""
-          <style id="tokoku-pengeluaran-kategori-v1">
-          #tokoku-expense-cat-tabs{
+          <style id="tokoku-pengeluaran-kategori-v2">
+          #tokoku-expense-cat-wrap{
             display:flex;
             gap:8px;
-            margin:2px 0 10px;
+            margin:10px 0;
           }
 
           .tokoku-expense-cat{
@@ -90,7 +146,7 @@ jobs:
             background:#fff;
             color:#65717f;
             border-radius:12px;
-            padding:9px 10px;
+            padding:10px 8px;
             font-size:12px;
             font-weight:700;
           }
@@ -100,52 +156,80 @@ jobs:
             color:#fff;
             border-color:#1476df;
           }
+
+          .tokoku-expense-category-hidden{
+            display:none !important;
+          }
           </style>
 
-          <script id="tokoku-pengeluaran-kategori-v1">
+          <script id="tokoku-pengeluaran-kategori-v2">
           (function(){
             "use strict";
 
-            const KEY="tokoku-expense-category-v1";
-            const CATS=["Belanja","Operasional"];
+            const CATEGORY_KEY =
+              "tokoku-expense-category-v2";
 
-            function load(){
+            const CATEGORIES = [
+              "Belanja",
+              "Operasional"
+            ];
+
+            function readCategories(){
               try{
-                return JSON.parse(localStorage.getItem(KEY)||"{}");
+                return JSON.parse(
+                  localStorage.getItem(
+                    CATEGORY_KEY
+                  ) || "{}"
+                );
               }catch(e){
                 return {};
               }
             }
 
-            function save(data){
+            function writeCategories(data){
               try{
-                localStorage.setItem(KEY,JSON.stringify(data));
+                localStorage.setItem(
+                  CATEGORY_KEY,
+                  JSON.stringify(data)
+                );
               }catch(e){}
             }
 
-            function itemKey(el){
+            function makeKey(item){
+              const text =
+                (item.innerText || "")
+                .trim();
+
               return btoa(
                 unescape(
-                  encodeURIComponent(
-                    (el.innerText||"").trim()
-                  )
+                  encodeURIComponent(text)
                 )
               ).slice(0,180);
             }
 
             function findExpenseSection(){
-              const all=[...document.querySelectorAll("section,main,div")];
+              const all = [
+                ...document.querySelectorAll(
+                  "section,main,div"
+                )
+              ];
 
               return all.find(el=>{
-                const t=(el.innerText||"").trim();
+                const text =
+                  (el.innerText || "")
+                  .trim();
 
-                return /pengeluaran/i.test(t) &&
-                  el.querySelector("button,input,select,.card,.item");
+                return (
+                  /pengeluaran/i.test(text) &&
+                  el.querySelector(
+                    "button,input,select,.card,.item"
+                  )
+                );
               });
             }
 
-            function findItems(sec){
-              const selectors=[
+            function findExpenseItems(section){
+              const selectors = [
                 "#expenseList",
                 ".expense-list",
                 ".pengeluaran-list",
@@ -155,111 +239,179 @@ jobs:
                 "[class*=pengeluaran] .card"
               ];
 
-              for(const q of selectors){
-                const a=[
-                  ...sec.querySelectorAll(q)
-                ].filter(x=>x.id!=="tokoku-expense-tabs-wrap");
+              for(
+                const selector of selectors
+              ){
+                const items = [
+                  ...section.querySelectorAll(
+                    selector
+                  )
+                ];
 
-                if(a.length) return a;
+                if(items.length){
+                  return items.filter(
+                    item =>
+                      !item.closest(
+                        "#tokoku-expense-category-wrap"
+                      )
+                  );
+                }
               }
 
-              return [...sec.children].filter(x=>{
-                const t=(x.innerText||"").trim();
+              return [
+                ...section.children
+              ].filter(item=>{
+                const text =
+                  (item.innerText || "")
+                  .trim();
 
-                return t &&
-                  /\d/.test(t) &&
-                  !/tambah|simpan|pengeluaran/i.test(t);
+                return (
+                  text &&
+                  /\d/.test(text) &&
+                  !/tambah|simpan|pengeluaran/i.test(text)
+                );
               });
             }
 
             function build(){
-              const sec=findExpenseSection();
+              const section =
+                findExpenseSection();
 
-              if(!sec) return;
+              if(!section){
+                return;
+              }
 
-              const items=findItems(sec);
+              const items =
+                findExpenseItems(section);
 
-              if(!items.length) return;
+              if(!items.length){
+                return;
+              }
 
-              let wrap=document.getElementById(
-                "tokoku-expense-tabs-wrap"
-              );
-
-              if(wrap) wrap.remove();
-
-              wrap=document.createElement("div");
-
-              wrap.id="tokoku-expense-tabs-wrap";
-
-              wrap.innerHTML=
-                '<div id="tokoku-expense-cat-tabs">'+
-                '</div>';
-
-              const catTabs=
-                wrap.querySelector(
-                  "#tokoku-expense-cat-tabs"
+              let wrap =
+                document.getElementById(
+                  "tokoku-expense-category-wrap"
                 );
 
-              const data=load();
+              if(wrap){
+                wrap.remove();
+              }
 
-              let selected="Belanja";
+              const data =
+                readCategories();
+
+              let selected =
+                "Belanja";
+
+              wrap =
+                document.createElement("div");
+
+              wrap.id =
+                "tokoku-expense-category-wrap";
+
+              wrap.innerHTML =
+                '<div id="tokoku-expense-cat-wrap">' +
+                '</div>';
+
+              const buttons =
+                wrap.querySelector(
+                  "#tokoku-expense-cat-wrap"
+                );
+
+              CATEGORIES.forEach(
+                category=>{
+                  const button =
+                    document.createElement(
+                      "button"
+                    );
+
+                  button.type = "button";
+
+                  button.className =
+                    "tokoku-expense-cat";
+
+                  button.textContent =
+                    category;
+
+                  button.dataset.category =
+                    category;
+
+                  button.addEventListener(
+                    "click",
+                    function(event){
+                      event.preventDefault();
+                      event.stopPropagation();
+                      event.stopImmediatePropagation();
+
+                      selected =
+                        category;
+
+                      apply();
+                    },
+                    true
+                  );
+
+                  buttons.appendChild(
+                    button
+                  );
+                }
+              );
 
               function apply(){
-                catTabs
+                buttons
                   .querySelectorAll("button")
-                  .forEach(btn=>{
-                    btn.classList.toggle(
+                  .forEach(button=>{
+                    button.classList.toggle(
                       "active",
-                      btn.dataset.cat===selected
+                      button.dataset.category ===
+                      selected
                     );
                   });
 
                 items.forEach(item=>{
-                  const category=
-                    data[itemKey(item)] || "Belanja";
+                  const key =
+                    makeKey(item);
 
-                  item.style.display=
-                    category===selected ? "" : "none";
+                  /*
+                   * Data lama yang belum mempunyai
+                   * kategori dianggap Belanja.
+                   */
+                  const category =
+                    data[key] ||
+                    "Belanja";
+
+                  item.classList.toggle(
+                    "tokoku-expense-category-hidden",
+                    category !== selected
+                  );
                 });
               }
 
-              CATS.forEach(cat=>{
-                const btn=document.createElement("button");
+              /*
+               * Tempel sebagai elemen biasa,
+               * bukan sebagai bagian dari form.
+               */
+              const parent =
+                items[0].parentNode;
 
-                btn.className=
-                  "tokoku-expense-cat"+
-                  (cat===selected ? " active" : "");
-
-                btn.dataset.cat=cat;
-                btn.textContent=cat;
-
-                btn.onclick=()=>{
-                  selected=cat;
-                  apply();
-                };
-
-                catTabs.appendChild(btn);
-              });
-
-              wrap.style.margin="10px 0";
-
-              const first=items[0];
-
-              if(first.parentNode){
-                first.parentNode.insertBefore(
-                  wrap,
-                  first
-                );
-              }
+              parent.insertBefore(
+                wrap,
+                items[0]
+              );
 
               apply();
             }
 
-            let timer=null;
+            let timer = null;
 
             function schedule(){
               clearTimeout(timer);
-              timer=setTimeout(build,350);
+
+              timer =
+                setTimeout(
+                  build,
+                  500
+                );
             }
 
             document.addEventListener(
@@ -272,14 +424,16 @@ jobs:
               schedule
             );
 
-            const observer=
-              new MutationObserver(schedule);
+            const observer =
+              new MutationObserver(
+                schedule
+              );
 
             observer.observe(
               document.documentElement,
               {
-                subtree:true,
-                childList:true
+                childList:true,
+                subtree:true
               }
             );
 
@@ -289,22 +443,28 @@ jobs:
 
           if "</body>" not in s.lower():
               raise SystemExit(
-                "STOP: penutup body tidak ditemukan."
+                "STOP: </body> tidak ditemukan."
               )
 
-          idx=s.lower().rfind("</body>")
+          index =
+              s.lower().rfind("</body>")
 
-          s=s[:idx]+patch+s[idx:]
+          s =
+              s[:index] +
+              patch +
+              s[index:]
 
           target.write_text(
-            s,
-            encoding="utf-8"
+              s,
+              encoding="utf-8"
           )
 
           print(
-            "Kategori Belanja dan Operasional ditambahkan:",
-            target
+              "Kategori Belanja/Operasional "
+              "ditambahkan:",
+              target
           )
+
           PY
 
       - name: Set version 3.22.15
@@ -319,29 +479,28 @@ jobs:
             "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '3.22.15'/" \
             app/build.gradle
 
-          grep -q "versionCode 40" app/build.gradle
-          grep -q "versionName '3.22.15'" app/build.gradle
+          grep -q "versionCode 40" \
+            app/build.gradle
+
+          grep -q "versionName '3.22.15'" \
+            app/build.gradle
 
       - name: Build DEBUG APK
         run: |
           set -e
 
-          gradle :app:clean :app:assembleDebug \
+          gradle \
+            :app:clean \
+            :app:assembleDebug \
             --no-daemon \
             --stacktrace
 
           test -s \
             app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Rename APK
-        run: |
-          cp \
-            app/build/outputs/apk/debug/app-debug.apk \
-            TokoKu-v3.22.15-Belanja-Operasional.apk
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TokoKu-v3.22.15-Belanja-Operasional
-          path: TokoKu-v3.22.15-Belanja-Operasional.apk
+          name: TokoKu-v3.22.15-Belanja-Operasional-FIX
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
