@@ -1,0 +1,406 @@
+name: Build TokoKu v3.22.15 - Auto Sign
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Setup Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Find and extract TokoKu source
+        run: |
+          set -e
+          ZIP="$(find . -type f -name 'TokoKu-v3.22.9-Printer-Bluetooth-GITHUB-READY.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            ZIP="$(find . -type f -name '*.zip' -print -quit)"
+          fi
+          test -n "$ZIP"
+
+          rm -rf build-project
+          mkdir build-project
+          unzip -q "$ZIP" -d build-project
+
+          APP_GRADLE="$(find build-project -type f -path '*/app/build.gradle' -print -quit)"
+          test -n "$APP_GRADLE"
+
+          PROJECT_DIR="$(dirname "$(dirname "$APP_GRADLE")")"
+          cp -R "$PROJECT_DIR/." .
+
+          test -f app/build.gradle
+
+      - name: Fix receipt footer
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path("app/src/main")
+          old_list = [
+              "Terima kasih telah berbelanja di TokoKu",
+              "Terima kasih telah berbelanja di Tokoku",
+              "Terimakasih telah berbelanja di TokoKu",
+              "Terimakasih telah berbelanja di Tokoku",
+          ]
+          new = "Jazakumullah Khairon telah berbelanja di Toko RangMudo Jr"
+
+          changed = []
+          for p in root.rglob("*"):
+              if not p.is_file():
+                  continue
+              if p.suffix.lower() not in {
+                  ".html",".htm",".js",".jsx",".ts",".tsx",
+                  ".kt",".java",".xml",".json",".txt"
+              }:
+                  continue
+              try:
+                  s = p.read_text(encoding="utf-8")
+              except Exception:
+                  continue
+
+              ns = s
+              for old in old_list:
+                  ns = ns.replace(old, new)
+
+              if ns != s:
+                  p.write_text(ns, encoding="utf-8")
+                  changed.append(str(p))
+
+          print("Footer files changed:", changed)
+
+          # Do not silently build the old footer.
+          hits = []
+          for p in root.rglob("*"):
+              if p.is_file():
+                  try:
+                      if new in p.read_text(encoding="utf-8", errors="ignore"):
+                          hits.append(str(p))
+                  except Exception:
+                      pass
+
+          if not hits:
+              raise SystemExit(
+                  "STOP: footer baru tidak ditemukan. Source kemungkinan berbeda dari yang diharapkan."
+              )
+
+          print("Footer verified:", hits)
+          PY
+
+      - name: Rapihkan Pengeluaran - Tab Per Hari
+        run: |
+          set -e
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Patch the WebView HTML without touching the existing expense data/storage.
+          candidates = list(Path("app/src/main").rglob("index.html"))
+          if not candidates:
+              raise SystemExit("STOP: index.html tidak ditemukan.")
+
+          target = candidates[0]
+          s = target.read_text(encoding="utf-8")
+
+          if "tokoku-pengeluaran-tab-harian-v2" in s:
+              print("Patch already present:", target)
+              raise SystemExit(0)
+
+          patch = r"""
+          <style id="tokoku-pengeluaran-tab-harian-v2">
+          #tokoku-expense-tabs-wrap{margin:12px 0}
+          #tokoku-expense-tabs{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;scrollbar-width:none}
+          #tokoku-expense-tabs::-webkit-scrollbar{display:none}
+          #tokoku-expense-cat-tabs{display:flex;gap:8px;margin:2px 0 10px}
+          .tokoku-expense-cat{flex:1;border:1px solid #dce4ec;background:#fff;color:#65717f;border-radius:12px;padding:9px 10px;font-size:12px;font-weight:700}
+          .tokoku-expense-cat.active{background:#1476df;color:#fff;border-color:#1476df}
+          .tokoku-expense-tab{flex:0 0 auto;border:1px solid #dce4ec;background:#fff;color:#65717f;border-radius:12px;padding:9px 13px;font-size:12px;font-weight:700}
+          .tokoku-expense-tab.active{background:#1476df;color:#fff;border-color:#1476df}
+          #tokoku-expense-summary{display:flex;justify-content:space-between;gap:8px;align-items:center;background:#f5f9ff;border:1px solid #dce8f7;border-radius:12px;padding:11px 12px;margin-bottom:10px}
+          #tokoku-expense-summary .t-label{font-size:11px;color:#687585}
+          #tokoku-expense-summary .t-total{font-size:17px;font-weight:800}
+          .tokoku-expense-day{display:none}
+          .tokoku-expense-day.active{display:block}
+          .tokoku-expense-empty{padding:18px;text-align:center;color:#718096;background:#f8fafc;border-radius:12px}
+          </style>
+          <script id="tokoku-pengeluaran-tab-harian-v2">
+          (function(){
+            "use strict";
+            const CATKEY="tokoku-expense-category-v1";
+            const CATS=["Belanja","Operasional"];
+            const loadCats=()=>{try{return JSON.parse(localStorage.getItem(CATKEY)||"{}")}catch(e){return{}}};
+            const saveCats=o=>{try{localStorage.setItem(CATKEY,JSON.stringify(o))}catch(e){}};
+            const itemKey=x=>{
+              const t=(x.innerText||"").trim();
+              return btoa(unescape(encodeURIComponent(t))).slice(0,180);
+            };
+            const ID="tokoku-expense-tabs-wrap";
+            const money=v=>{
+              const n=Number(String(v).replace(/[^\d-]/g,""))||0;
+              return "Rp "+n.toLocaleString("id-ID");
+            };
+            const dateKey=s=>{
+              s=String(s||"").trim();
+              let m=s.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);
+              if(m) return m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");
+              m=s.match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/);
+              if(m) return m[1]+"-"+m[2].padStart(2,"0")+"-"+m[3].padStart(2,"0");
+              return "";
+            };
+            const label=k=>{
+              if(!k) return "Tanpa tanggal";
+              const [y,mo,d]=k.split("-");
+              const dt=new Date(+y,+mo-1,+d);
+              return dt.toLocaleDateString("id-ID",{day:"2-digit",month:"short"});
+            };
+            function findExpenseSection(){
+              const all=[...document.querySelectorAll("section,main,div")];
+              return all.find(el=>{
+                const t=(el.innerText||"").trim();
+                return /pengeluaran/i.test(t) && el.querySelector("button,input,select,.card,.item");
+              });
+            }
+            function findExpenseItems(sec){
+              const selectors=[
+                "#expenseList",".expense-list",".pengeluaran-list",
+                "[id*=expense] [class*=item]","[id*=pengeluaran] [class*=item]",
+                "[class*=expense] .card","[class*=pengeluaran] .card"
+              ];
+              for(const q of selectors){
+                const a=[...sec.querySelectorAll(q)].filter(x=>x.id!==ID);
+                if(a.length>0) return a;
+              }
+              return [...sec.children].filter(x=>{
+                if(x.id===ID) return false;
+                const t=(x.innerText||"").trim();
+                return t && /\d/.test(t) && !/tambah|simpan|pengeluaran/i.test(t);
+              });
+            }
+            function build(){
+              const sec=findExpenseSection();
+              if(!sec) return;
+              let items=findExpenseItems(sec);
+              if(!items.length) return;
+
+              let wrap=document.getElementById(ID);
+              if(wrap) wrap.remove();
+
+              const groups=new Map();
+              items.forEach(item=>{
+                const k=dateKey(item.innerText||"")||"";
+                if(!groups.has(k)) groups.set(k,[]);
+                groups.get(k).push(item);
+              });
+
+              const keys=[...groups.keys()].sort((a,b)=>b.localeCompare(a));
+              const usable=keys.filter(k=>k);
+              if(!usable.length) return;
+
+              wrap=document.createElement("div");
+              wrap.id=ID;
+              wrap.innerHTML='<div id="tokoku-expense-tabs"></div><div id="tokoku-expense-cat-tabs"></div><div id="tokoku-expense-summary"><div><div class="t-label">Pengeluaran terpilih</div><div class="t-total" id="tokoku-expense-total">Rp 0</div></div><div class="t-label" id="tokoku-expense-count"></div></div>';
+
+              const anchor=items[0];
+              anchor.parentNode.insertBefore(wrap,anchor);
+
+              const tabs=wrap.querySelector("#tokoku-expense-tabs");
+              const catTabs=wrap.querySelector("#tokoku-expense-cat-tabs");
+              const totalEl=wrap.querySelector("#tokoku-expense-total");
+              const countEl=wrap.querySelector("#tokoku-expense-count");
+              const cats=loadCats();
+              let selectedDate=usable[0];
+              let selectedCat="Belanja";
+
+              const panels=new Map();
+              keys.forEach(k=>{
+                const panel=document.createElement("div");
+                panel.className="tokoku-expense-day";
+                panel.dataset.date=k;
+                panels.set(k,panel);
+                groups.get(k).forEach(x=>panel.appendChild(x));
+                wrap.appendChild(panel);
+              });
+
+              const apply=()=>{
+                tabs.querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.date===selectedDate));
+                catTabs.querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.cat===selectedCat));
+                panels.forEach((p,d)=>p.classList.toggle("active",d===selectedDate));
+                const arr=(groups.get(selectedDate)||[]).filter(x=>(cats[itemKey(x)]||"Belanja")===selectedCat);
+                let total=0;
+                arr.forEach(x=>{
+                  const nums=(x.innerText||"").match(/(?:Rp\s*)?[\d.]+/g)||[];
+                  if(nums.length) total+=Number(nums[nums.length-1].replace(/[^\d]/g,""))||0;
+                });
+                panels.forEach((p,d)=>{
+                  [...p.children].forEach(x=>x.style.display=(d===selectedDate && (cats[itemKey(x)]||"Belanja")===selectedCat)?"":"none");
+                });
+                totalEl.textContent=money(total);
+                countEl.textContent=arr.length+" transaksi";
+              };
+
+              const select=k=>{selectedDate=k;apply()};
+              CATS.forEach(cat=>{
+                const b=document.createElement("button");
+                b.className="tokoku-expense-cat"+(cat===selectedCat?" active":"");
+                b.dataset.cat=cat;
+                b.textContent=cat;
+                b.onclick=()=>{selectedCat=cat;apply()};
+                catTabs.appendChild(b);
+              });
+
+              usable.forEach((k,i)=>{
+                const b=document.createElement("button");
+                b.className="tokoku-expense-tab"+(i===0?" active":"");
+                b.dataset.date=k;
+                b.textContent=label(k);
+                b.onclick=()=>select(k);
+                tabs.appendChild(b);
+              });
+              select(usable[0]);
+            }
+            let timer=null;
+            const schedule=()=>{clearTimeout(timer);timer=setTimeout(build,350)};
+            document.addEventListener("DOMContentLoaded",schedule);
+            const mo=new MutationObserver(schedule);
+            mo.observe(document.documentElement,{subtree:true,childList:true});
+            window.addEventListener("load",schedule);
+          })();
+          </script>
+          """
+          if "</body>" not in s.lower():
+              raise SystemExit("STOP: penutup body tidak ditemukan.")
+          idx=s.lower().rfind("</body>")
+          s=s[:idx]+patch+s[idx:]
+          target.write_text(s,encoding="utf-8")
+          print("Patched:", target)
+          PY
+
+      - name: Set version 3.22.15
+        run: |
+          set -e
+          sed -i -E "s/versionCode[[:space:]]+[0-9]+/versionCode 40/" app/build.gradle
+          sed -i -E "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '3.22.15'/" app/build.gradle
+
+          grep -q "versionCode 40" app/build.gradle
+          grep -q "versionName '3.22.15'" app/build.gradle
+
+      - name: Build DEBUG APK
+        run: |
+          set -e
+          gradle :app:clean :app:assembleDebug --no-daemon --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Prepare existing release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.TOKOKU_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          test -n "$KEYSTORE_B64"
+          echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/tokoku-release.jks"
+          test -s "$RUNNER_TEMP/tokoku-release.jks"
+
+      - name: Detect signing alias and sign APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.TOKOKU_KEYSTORE_PASSWORD }}
+          SECRET_ALIAS: ${{ secrets.TOKOKU_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.TOKOKU_KEY_PASSWORD }}
+        run: |
+          set -e
+
+          KS="$RUNNER_TEMP/tokoku-release.jks"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          OUT="app/build/outputs/apk/debug/TokoKu-v3.22.15-Jazakumullah-RangMudoJr.apk"
+
+          test -n "$KEYSTORE_PASSWORD"
+
+          echo "Checking keystore..."
+          keytool -list -keystore "$KS" \
+            -storepass "$KEYSTORE_PASSWORD" >/tmp/keystore.txt
+
+          echo "Keystore is readable."
+
+          # Get the first private-key alias automatically.
+          ALIAS="$(keytool -list -v -keystore "$KS" -storepass "$KEYSTORE_PASSWORD" 2>/dev/null |
+            awk -F': ' '/Alias name:/{print $2; exit}')"
+
+          if [ -z "$ALIAS" ]; then
+            ALIAS="$SECRET_ALIAS"
+          fi
+
+          test -n "$ALIAS"
+          echo "Using detected signing alias: $ALIAS"
+
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+
+          # First try the configured key password.
+          if [ -n "$KEY_PASSWORD" ]; then
+            "$APKSIGNER" sign \
+              --ks "$KS" \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$ALIAS" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              --out "$OUT" \
+              "$APK" || rm -f "$OUT"
+          fi
+
+          # If key password is the same as keystore password, retry with it.
+          if [ ! -s "$OUT" ]; then
+            echo "Retrying signing with keystore password as key password..."
+            "$APKSIGNER" sign \
+              --ks "$KS" \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$ALIAS" \
+              --key-pass "pass:$KEYSTORE_PASSWORD" \
+              --out "$OUT" \
+              "$APK"
+          fi
+
+          test -s "$OUT"
+
+      - name: Verify final APK and update compatibility
+        run: |
+          set -e
+
+          APK="app/build/outputs/apk/debug/TokoKu-v3.22.15-Jazakumullah-RangMudoJr.apk"
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+
+          BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+          echo "$BADGING"
+
+          echo "$BADGING" | grep -E "versionCode='39' versionName='3.22.15'"
+
+          mkdir -p output
+          cp "$APK" "output/TokoKu-v3.22.15-Jazakumullah-RangMudoJr.apk"
+
+      - name: Upload FINAL APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TokoKu-v3.22.15-Jazakumullah-RangMudoJr
+          path: output/TokoKu-v3.22.15-Jazakumullah-RangMudoJr.apk
+          if-no-files-found: error
+          retention-days: 30
