@@ -11,10 +11,11 @@ permissions:
 
 jobs:
   build:
-    name: Build APK
+    name: Build APK TokoKu v3.22.15
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout source
         uses: actions/checkout@v4
 
@@ -30,55 +31,88 @@ jobs:
           gradle-version: '8.7'
 
       - name: Setup Android SDK
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"             "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"
+        uses: android-actions/setup-android@v4
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
 
-      - name: Find Android project
-        shell: bash
+      - name: Check Android project
         run: |
           set -e
-          if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
-            PROJECT_DIR="$GITHUB_WORKSPACE"
-          else
-            PROJECT_DIR="$(find "$GITHUB_WORKSPACE" -maxdepth 4 -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit | xargs -r dirname)"
-          fi
 
-          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "ERROR: Android project not found."
-            find "$GITHUB_WORKSPACE" -maxdepth 4 -type f \( -name settings.gradle -o -name settings.gradle.kts -o -name build.gradle -o -name build.gradle.kts \) -print
-            exit 1
-          fi
+          echo "=== CHECK PROJECT ==="
+          pwd
+          echo "--- ROOT ---"
+          ls -la
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project: $PROJECT_DIR"
+          test -f settings.gradle
+          test -f app/build.gradle
+
+          echo "Android project ditemukan di root repository."
+
+      - name: Check TokoKu version and feature
+        run: |
+          set -e
+
+          echo "=== CHECK VERSION ==="
+
+          grep -q "versionCode 40" app/build.gradle
+          grep -q "versionName '3.22.15'" app/build.gradle
+
+          echo "=== CHECK PENGELUARAN HARIAN ==="
+
+          test -f app/src/main/assets/index.html
+
+          grep -q "Pengeluaran Harian" \
+            app/src/main/assets/index.html
+
+          grep -q "expenseDayTabs" \
+            app/src/main/assets/index.html
+
+          echo "================================"
+          echo "TokoKu v3.22.15"
+          echo "Pengeluaran Harian"
+          echo "CHECK BERHASIL"
+          echo "================================"
 
       - name: Build DEBUG APK
-        shell: bash
         run: |
           set -e
-          cd "$PROJECT_DIR"
-          gradle :app:clean :app:assembleDebug --no-daemon --stacktrace
 
-          APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
-          if [ -z "$APK" ]; then
-            echo "ERROR: Debug APK was not produced."
-            find app/build/outputs -type f -print 2>/dev/null || true
-            exit 1
-          fi
+          echo "=== BUILD APK ==="
 
-          mkdir -p "$GITHUB_WORKSPACE/output"
-          cp "$APK" "$GITHUB_WORKSPACE/output/TokoKu-v3.22.15-Pengeluaran-Harian.apk"
-          echo "APK created: $GITHUB_WORKSPACE/output/TokoKu-v3.22.15-Pengeluaran-Harian.apk"
+          gradle \
+            :app:clean \
+            :app:assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+          mkdir -p output
+
+          cp \
+            app/build/outputs/apk/debug/app-debug.apk \
+            output/TokoKu-v3.22.15-Pengeluaran-Harian.apk
+
+          echo "APK berhasil dibuat."
 
       - name: Verify APK
-        shell: bash
         run: |
           set -e
-          APK="$GITHUB_WORKSPACE/output/TokoKu-v3.22.15-Pengeluaran-Harian.apk"
-          test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -n 3
+
+          echo "=== VERIFY APK ==="
+
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify \
+            app/build/outputs/apk/debug/app-debug.apk
+
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            app/build/outputs/apk/debug/app-debug.apk \
+            | grep -E "versionCode='40' versionName='3.22.15'"
+
+          echo "APK VERIFY BERHASIL."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
